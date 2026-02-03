@@ -1,0 +1,18 @@
+# Ensure text files use LF in the repository
+*.py text eol=lf
+*.yaml text eol=lf
+*.txt text eol=lf
+*.html text eol=lf
+.gitignore text eol=lf
+.python-version text eol=lf
+config.yaml text eol=lf
+requirements.txt text eol=lf
+
+# Binary files (no line-ending conversion or diffing)
+*.pth binary
+*.json binary
+
+# Git LFS tracked files
+*.safetensors filter=lfs diff=lfs merge=lfs -text
+backend/models/image_model/EfficientnetV2_model.pth filter=lfs diff=lfs merge=lfs -text
+backend/models/audio_model/model.safetensors filter=lfs diff=lfs merge=lfs -text

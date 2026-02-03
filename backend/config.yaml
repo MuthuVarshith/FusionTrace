@@ -1,0 +1,4 @@
+model_path:
+  audio: models/audio_model
+  image: models/image_model/EfficientnetV2_model.pth
+test_data_dir: data/test_data

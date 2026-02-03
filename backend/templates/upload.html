@@ -1,0 +1,83 @@
+<!-- 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deepfake Detection</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+        .container { max-width: 600px; margin: auto; }
+        .result { margin-top: 20px; }
+        input[type="file"] { margin: 10px; }
+        button { padding: 10px 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Deepfake Detection</h1>
+        
+        <h3>Upload Audio File (WAV or MP3)</h3>
+        <form id="audioForm" enctype="multipart/form-data">
+            <input type="file" id="audioFile" accept=".wav,.mp3" required>
+            <button type="submit">Detect Audio</button>
+        </form>
+        <div id="audioResult" class="result"></div>
+
+        <h3>Upload Image File (PNG, JPG, JPEG)</h3>
+        <form id="imageForm" enctype="multipart/form-data">
+            <input type="file" id="imageFile" accept=".png,.jpg,.jpeg" required>
+            <button type="submit">Detect Image</button>
+        </form>
+        <div id="imageResult" class="result"></div>
+    </div>
+
+    <script>
+        // Audio form submission
+        document.getElementById('audioForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const fileInput = document.getElementById('audioFile');
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            try {
+                const response = await fetch('/audio/detect', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await response.json();
+                document.getElementById('audioResult').innerHTML = `
+                    <p><strong>Prediction:</strong> ${result.prediction}</p>
+                    <p><strong>Confidence:</strong> ${result.confidence}</p>
+                    <p><strong>File Path:</strong> ${result.saved_file_path}</p>
+                `;
+            } catch (error) {
+                document.getElementById('audioResult').innerHTML = `<p>Error: ${error.message}</p>`;
+            }
+        });
+
+        // Image form submission
+        document.getElementById('imageForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const fileInput = document.getElementById('imageFile');
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            try {
+                const response = await fetch('/image/detect', {
+                    method: 'POST',
+                    body: formData
+                });
+                const result = await response.json();
+                document.getElementById('imageResult').innerHTML = `
+                    <p><strong>Prediction:</strong> ${result.prediction}</p>
+                    <p><strong>Confidence:</strong> ${result.confidence}</p>
+                    <p><strong>File Path:</strong> ${result.saved_file_path}</p>
+                `;
+            } catch (error) {
+                document.getElementById('imageResult').innerHTML = `<p>Error: ${error.message}</p>`;
+            }
+        });
+    </script>
+</body>
+</html> -->

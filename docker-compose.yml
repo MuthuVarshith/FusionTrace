@@ -1,0 +1,12 @@
+version: '3'
+
+services:
+  mdfd-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/data:/app/data
+    restart: unless-stopped
