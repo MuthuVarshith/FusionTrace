@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 
 ## Multimodal Deepfake Detection
 
@@ -227,6 +228,9 @@ This project is under the [MIT License](LICENSE).
 For help or suggestions:
 
 * File an issue in the GitHub repo
-* Email the maintainer: `akshayredekar04@gmail.com`
+* Email the maintainer: `muthuvarshith290@gmail.com`
 
 
+
+# Fusiontrace
+notepad LICENSE
