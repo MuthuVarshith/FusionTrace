@@ -1,5 +1,3 @@
-<<<<<<< HEAD
-
 ## Multimodal Deepfake Detection
 
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
@@ -205,22 +203,6 @@ Use sample files in the `test/` folder to verify output.
 
 * `test/deepfakes/`: Example fakes
 * `test/real/`: Example genuine files
-
-
-
-## Contributing
-
-1. Fork the repo
-2. Create a new branch: `git checkout -b feature-name`
-3. Commit your changes
-4. Push and submit a PR
-
-
-
-## License
-
-This project is under the [MIT License](LICENSE).
-
 
 
 ## Contact
