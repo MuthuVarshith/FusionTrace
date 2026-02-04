@@ -122,8 +122,8 @@ The application integrates cutting-edge AI models with a clean web-based fronten
 ### 1. Clone the Repository
 
 ```bash
-https://github.com/Akshayredekar07/Multimodal-Deepfake-Detection.git
-cd Multimodal-Deepfake-Detection/backend
+git clone https://github.com/MuthuVarshith/FusionTrace.git
+cd FusionTrace/backend
 ````
 
 ### 2. Create and Activate Virtual Environment
@@ -155,7 +155,8 @@ Also verify paths in `config.yaml`.
 ### 5. Run the Web App
 
 ```bash
-python -m app.main
+python -m uvicorn app.main:app
+
 ```
 
 Visit: [http://localhost:8000](http://localhost:8000)
@@ -213,6 +214,3 @@ For help or suggestions:
 * Email the maintainer: `muthuvarshith290@gmail.com`
 
 
-
-# Fusiontrace
-notepad LICENSE
