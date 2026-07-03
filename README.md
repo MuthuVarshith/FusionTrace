@@ -16,11 +16,6 @@ A robust web-based application for detecting synthetic media (deepfakes) in **im
 ![Landing Page](images/6.png)
 ![Landing Page](images/7.png) -->
 
-
-## Live Demo
-![Demo](resources/images/Live_demo.gif)
-
-
 ## Key Features
 
 - **Advanced Media Analysis**: Detect manipulated content across multiple formats (images, audio)
