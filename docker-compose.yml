@@ -9,4 +9,7 @@ services:
       - "8000:8000"
     volumes:
       - ./backend/data:/app/data
+    environment:
+      FUSIONTRACE_CORS_ORIGINS: http://localhost:8000
+      FUSIONTRACE_RETENTION_HOURS: 24
     restart: unless-stopped

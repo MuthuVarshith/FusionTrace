@@ -90,3 +90,85 @@ def detect_image_deepfake(image_path: str) -> dict:
     except Exception as e:
         logger.error(f"Error processing image {image_path}: {e}")
         return {"prediction": "Error", "confidence": str(e)}
+
+
+def generate_gradcam(image_path: str, output_path: str) -> bool:
+    """Generate a GradCAM attention heatmap overlay and save it as a JPEG.
+
+    Uses pure PyTorch hooks + NumPy + PIL — no cv2 or extra packages required.
+    Hooks the last convolutional block of the EfficientNetV2 backbone, computes
+    gradient-weighted feature-map activations, applies a jet colormap, and blends
+    the result with the original image.
+
+    Returns True on success, False on any error (the scan always completes regardless).
+    """
+    try:
+        import numpy as np
+
+        orig_img = Image.open(image_path).convert("RGB")
+        orig_w, orig_h = orig_img.size
+        img_tensor = transform(orig_img).unsqueeze(0).to(device)
+
+        activations: list = [None]
+        gradients: list = [None]
+
+        # Hook the last block of the timm EfficientNetV2 backbone
+        target_layer = model.base_model.blocks[-1]
+
+        fwd_handle = target_layer.register_forward_hook(
+            lambda m, i, o: activations.__setitem__(0, o)
+        )
+        bwd_handle = target_layer.register_full_backward_hook(
+            lambda m, gi, go: gradients.__setitem__(0, go[0])
+        )
+
+        try:
+            model.eval()
+            output = model(img_tensor)          # forward WITH gradient tracking
+            prob = torch.sigmoid(output)
+            model.zero_grad()
+            prob.backward()                     # compute gradients
+
+            acts = activations[0]               # [1, C, H, W]
+            grads = gradients[0]                # [1, C, H, W]
+
+            if acts is None or grads is None or acts.dim() != 4:
+                logger.warning("GradCAM: unexpected activation shape — skipping.")
+                return False
+
+            weights = grads.mean(dim=(2, 3), keepdim=True)          # [1, C, 1, 1]
+            cam = (weights * acts).sum(dim=1).squeeze()              # [H, W]
+            cam = torch.relu(cam).detach().cpu().numpy().astype(float)
+
+            cam_min, cam_max = cam.min(), cam.max()
+            if cam_max - cam_min < 1e-8:
+                logger.warning("GradCAM: flat activation map — skipping.")
+                return False
+            cam = (cam - cam_min) / (cam_max - cam_min)              # normalise [0,1]
+
+            # Resize to original image dimensions using PIL
+            cam_pil = Image.fromarray((cam * 255).astype(np.uint8)).resize(
+                (orig_w, orig_h), Image.BILINEAR
+            )
+            t = np.array(cam_pil).astype(np.float32) / 255.0        # [H, W] in [0,1]
+
+            # Jet colormap — pure NumPy, no cv2/matplotlib
+            r = np.clip(1.5 - np.abs(4 * t - 3), 0, 1)
+            g = np.clip(1.5 - np.abs(4 * t - 2), 0, 1)
+            b = np.clip(1.5 - np.abs(4 * t - 1), 0, 1)
+            heatmap = (np.stack([r, g, b], axis=-1) * 255).astype(np.uint8)
+
+            # Blend: 40% original + 60% heatmap
+            orig_np = np.array(orig_img).astype(np.float32)
+            overlay = (0.4 * orig_np + 0.6 * heatmap).clip(0, 255).astype(np.uint8)
+
+            Image.fromarray(overlay).save(output_path, quality=88)
+            logger.info("GradCAM heatmap saved to %s", output_path)
+            return True
+        finally:
+            fwd_handle.remove()
+            bwd_handle.remove()
+
+    except Exception as exc:
+        logger.warning("GradCAM generation failed: %s", exc)
+        return False

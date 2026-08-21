@@ -1,53 +1,59 @@
+"""Centralised, environment-aware application settings."""
 
 import logging
-import yaml
+import os
 from pathlib import Path
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+import yaml
+from dotenv import load_dotenv
 
-# Load configuration from YAML
-BASE_DIR = Path(__file__).parent.parent
-CONFIG_PATH = BASE_DIR / "config.yaml"
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logger = logging.getLogger("fusiontrace")
 
+# Configure FFmpeg automatically using imageio-ffmpeg if available
 try:
-    with open(CONFIG_PATH, 'r') as file:
-        config = yaml.safe_load(file)
-except FileNotFoundError:
-    logger.error(f"Configuration file not found: {CONFIG_PATH}")
-    raise
-except yaml.YAMLError as e:
-    logger.error(f"Error parsing YAML file: {e}")
-    raise
+    import imageio_ffmpeg
+    import shutil
+    
+    ffmpeg_exe_path = imageio_ffmpeg.get_ffmpeg_exe()
+    if ffmpeg_exe_path and os.path.exists(ffmpeg_exe_path):
+        ffmpeg_dir = os.path.dirname(ffmpeg_exe_path)
+        target_ffmpeg = os.path.join(ffmpeg_dir, "ffmpeg.exe")
+        
+        # Ensure a file named exactly "ffmpeg.exe" exists for libraries that expect that name
+        if not os.path.exists(target_ffmpeg) and ffmpeg_exe_path != target_ffmpeg:
+            try:
+                shutil.copy(ffmpeg_exe_path, target_ffmpeg)
+            except Exception:
+                pass  # Fallback gracefully
+                
+        if ffmpeg_dir not in os.environ.get("PATH", ""):
+            os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
+            logger.info(f"Dynamically added FFmpeg to PATH: {ffmpeg_dir}")
+except ImportError:
+    logger.debug("imageio-ffmpeg not found; relying on system-installed FFmpeg.")
 
-# Configuration
-AUDIO_MODEL_PATH = Path(config.get("model_path", {}).get("audio", "models/audio_model")).resolve()
-IMAGE_MODEL_PATH = Path(config.get("model_path", {}).get("image", "models/image_model/EfficientnetV2_model.pth")).resolve()
-TEST_DATA_DIR = Path(config.get("test_data_dir", "data/test_data")).resolve()
+BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env")
+with (BASE_DIR / "config.yaml").open("r", encoding="utf-8") as config_file:
+    config = yaml.safe_load(config_file) or {}
 
-# Validate AUDIO_MODEL_PATH
-if not AUDIO_MODEL_PATH.exists() or not AUDIO_MODEL_PATH.is_dir():
-    logger.error(f"AUDIO_MODEL_PATH does not exist or is not a directory: {AUDIO_MODEL_PATH}")
-    raise ValueError(f"Invalid AUDIO_MODEL_PATH: {AUDIO_MODEL_PATH}")
 
-# Validate IMAGE_MODEL_PATH
-if not IMAGE_MODEL_PATH.exists() or not IMAGE_MODEL_PATH.is_file():
-    logger.error(f"IMAGE_MODEL_PATH does not exist or is not a file: {IMAGE_MODEL_PATH}")
-    raise ValueError(f"Invalid IMAGE_MODEL_PATH: {IMAGE_MODEL_PATH}")
+def _path(setting: str, default: str) -> Path:
+    value = os.getenv(setting, default)
+    candidate = Path(value)
+    return candidate if candidate.is_absolute() else (BASE_DIR / candidate).resolve()
 
-# Ensure test_data directory exists
-TEST_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-# Convert paths to strings for compatibility
-AUDIO_MODEL_PATH = str(AUDIO_MODEL_PATH)
-IMAGE_MODEL_PATH = str(IMAGE_MODEL_PATH)
-TEST_DATA_DIR = str(TEST_DATA_DIR)
+AUDIO_MODEL_PATH = _path("FUSIONTRACE_AUDIO_MODEL_PATH", config.get("model_path", {}).get("audio", "models/audio_model"))
+IMAGE_MODEL_PATH = _path("FUSIONTRACE_IMAGE_MODEL_PATH", config.get("model_path", {}).get("image", "models/image_model/EfficientnetV2_model.pth"))
+DATA_DIR = _path("FUSIONTRACE_DATA_DIR", "data")
+UPLOAD_DIR = DATA_DIR / "uploads"
+ARTIFACT_DIR = DATA_DIR / "artifacts"
+DATABASE_PATH = DATA_DIR / "fusiontrace.db"
+MAX_UPLOAD_MB = int(os.getenv("FUSIONTRACE_MAX_UPLOAD_MB", "200"))
+RETENTION_HOURS = int(os.getenv("FUSIONTRACE_RETENTION_HOURS", "24"))
+GEMINI_API_KEY: str | None = os.getenv("GEMINI_API_KEY") or None
 
-# Log resolved paths
-logger.info(f"Resolved AUDIO_MODEL_PATH: {AUDIO_MODEL_PATH}")
-logger.info(f"Resolved IMAGE_MODEL_PATH: {IMAGE_MODEL_PATH}")
-logger.info(f"Resolved TEST_DATA_DIR: {TEST_DATA_DIR}")
+for directory in (DATA_DIR, UPLOAD_DIR, ARTIFACT_DIR):
+    directory.mkdir(parents=True, exist_ok=True)

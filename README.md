@@ -1,211 +1,119 @@
-## Multimodal Deepfake Detection
+## FusionTrace: Multimodal Media-Authenticity Assessment
 
 [![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-A robust web-based application for detecting synthetic media (deepfakes) in **images and audio** using state-of-the-art AI models like **EfficientNetV2** and **Wav2Vec2**. The platform offers an intuitive interface for media analysis while maintaining high security and privacy standards.
+A self-hostable, enterprise-ready web application that evaluates authenticity risk in **images, audio, and sampled video frames**. It combines specialised ML models with file inspection, GradCAM heatmaps, AI-powered forensic summarization, and human audit trail logging.
 
-
-<!-- ## Screenshot of Web Application -->
-
-<!-- ![Landing Page](images/1.png)
-![Landing Page](images/2.png)
-![Landing Page](images/3.png)
-![Landing Page](images/4.png)
-![Landing Page](images/5.png)
-![Landing Page](images/6.png)
-![Landing Page](images/7.png) -->
+---
 
 ## Key Features
 
-- **Advanced Media Analysis**: Detect manipulated content across multiple formats (images, audio)
-- **High-Performance AI Models**: 
-  - **EfficientNetV2** for image forgery detection
-  - **Wav2Vec2** for detecting voice synthesis artifacts in audio
-- **User-Friendly Interface**: Drag-and-drop media upload with instant deepfake detection
+- **Multimodal Media Analysis**: Inspect image (JPG, PNG, WebP), audio (WAV, MP3, M4A), and video (MP4, MOV, WebM) files.
+- **High-Performance AI Models**:
+  - **EfficientNetV2**: Fine-tuned visual deepfake and manipulation detection.
+  - **Wav2Vec2**: Fine-tuned acoustic analysis for detecting voice synthesis and cloning artifacts.
+  - **In-Memory Caching**: Pre-warmed audio & image models for fast response times.
+- **GradCAM Visual Heatmap**: Generates a spatial attention heatmap overlay highlighting the exact pixel regions that triggered an image manipulation flag.
+- **AI Forensic Summarization**: Integrated **Gemini 3.6 Flash** generates 2–3 sentence plain-language forensic summaries using hedged, evidence-based guardrails.
+- **Standalone A4 Forensic Report PDF**: 1-page official PDF export with scan metadata, risk scores, detector breakdown, GradCAM maps, and disclaimer notes.
+- **Human Review Audit Trail**: Allows reviewers to log feedback labels (`Confirmed Real`, `Confirmed Fake`, `Needs Review`) with persistent history.
 
-
-## Architecture Overview
-
-The application integrates cutting-edge AI models with a clean web-based frontend.
-
-### Supported Formats
-
-- **Images**: JPG, PNG
-- **Audio**: MP3, WAV
-
-### Detection Models
-
-- **Image**: Fine-tuned **EfficientNetV2** trained to detect visual deepfake traces
-- **Audio**: Fine-tuned **Wav2Vec2** model optimized for detecting synthetic voices
-- **Batch Processing**: Simultaneous evaluation of multiple media files
-
-
+---
 
 ## Project Structure
 
 ```
-
 .
-├── app/
-│   ├── __init__.py
-│   ├── audio_detection.py       # Wav2Vec2-based audio deepfake detection
-│   ├── config.py                # App settings and environment paths
-│   ├── image_detection.py       # EfficientNetV2-based image detection
-│   └── main.py                  # FastAPI backend entry point
-│
-├── config.yaml                  # Path to models and configuration values
-│
-├── data/
-│   └── test_data/               # Sample media files (audio/image)
+├── backend/
+│   ├── app/
+│   │   ├── ai_summary.py        # Gemini 3.6 Flash forensic summarization
+│   │   ├── audio_detection.py   # Wav2Vec2 audio deepfake classification
+│   │   ├── config.py            # Environment configuration & FFmpeg auto-setup
+│   │   ├── image_detection.py   # EfficientNetV2 + GradCAM heatmap generation
+│   │   ├── main.py              # FastAPI application routes & REST endpoints
+│   │   └── service.py           # Scan orchestrator, evidence fusion & SQLite persistence
+│   │
+│   ├── data/
+│   │   ├── artifacts/           # Stored heatmaps and extracted audio tracks
+│   │   ├── uploads/             # Temporary uploaded source media
+│   │   └── fusiontrace.db       # SQLite database with scan & audit history
+│   │
+│   ├── templates/
+│   │   ├── index.html           # Main web application dashboard
+│   │   └── static/
+│   │       ├── css/styles.css   # Modern dark/light UI styling
+│   │       └── js/script.js     # Frontend scanner, polling & A4 PDF generator
+│   │
+│   └── tests/                   # Unit test suite
 │
 ├── models/
-│   ├── audio_model/             # Wav2Vec2 model files
-│   │   ├── config.json
-│   │   ├── model.safetensors
-│   │   ├── preprocessor_config.json
-│   │   ├── special_tokens_map.json
-│   │   ├── tokenizer_config.json
-│   │   └── vocab.json
-│   │
-│   └── image_model/
-│       └── EfficientNetV2_model.pth  # Pretrained EfficientNetV2 weights
+│   ├── audio_model/             # Wav2Vec2 pretrained model weights
+│   └── image_model/             # EfficientNetV2 model weights (.pth)
 │
-├── notebook/
-│   ├── audio_detection/
-│   │   └── model_train_5.0.ipynb      # Audio model training notebook
-│   │
-│   └── image_detection/
-│       ├── image_data_download.ipynb
-│       ├── image_deepfake_detection.ipynb
-│       ├── image_detection_dataset.py
-│       └── model_training.py
-│
-├── templates/
-│   ├── index.html
-│   ├── upload.html
-│   └── static/
-│       ├── css/
-│       │   └── styles.css
-│       └── js/
-│           └── script.js
-│
-├── test/
-│   ├── deepfakes/
-│   └── real/
-│
-├── pyproject.toml               # Python project dependencies
-├── README.md                    # Project documentation
-└── uv.lock                      # Lock file for dependencies
+└── README.md
+```
 
+---
 
-````
+## Deployment Guide
 
+### Recommended Deployment Options
 
+1. **Render.com / Railway.app (Web Service - RECOMMENDED)**
+   - Connect your GitHub repo.
+   - Environment variables required:
+     - `GEMINI_API_KEY`: Your Google Gemini API key.
+     - `FUSIONTRACE_CORS_ORIGINS`: Set to your deployed domain (e.g. `https://fusiontrace.onrender.com`).
+   - Build Command: `pip install -r pyproject.toml` or `uv sync`
+   - Start Command: `python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 
-## Requirements
+2. **Docker / Cloud VPS (DigitalOcean / AWS EC2 / Hugging Face Spaces)**
+   - Runs as a standalone container with FFmpeg pre-installed.
+   - Mount a persistent volume at `backend/data/` to keep SQLite database & scan history.
 
-- Python 3.10+
-- Dependencies from `pyproject.toml`
-- FFmpeg (for audio preprocessing)
-- Trained models for both image and audio (included in `models/`)
+---
 
-
-
-## Installation Guide
+## Local Setup & Run
 
 ### 1. Clone the Repository
-
 ```bash
 git clone https://github.com/MuthuVarshith/FusionTrace.git
 cd FusionTrace/backend
-````
-
-### 2. Create and Activate Virtual Environment
-
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
-### 3. Install Dependencies
-
+### 2. Set Up Virtual Environment & Dependencies
 ```bash
-# Preferred
-uv sync
-
-# Or using pip
-pip install -r requirements.txt
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -e .
 ```
 
-### 4. Model Check
-
-Ensure these models are present:
-
-* `models/audio_model/` (Wav2Vec2 model files)
-* `models/image_model/EfficientnetV2_model.pth`
-
-Also verify paths in `config.yaml`.
-
-### 5. Run the Web App
-
-```bash
-python -m uvicorn app.main:app
-
+### 3. Environment Variables
+Create a `.env` file in `backend/`:
+```env
+GEMINI_API_KEY=your_gemini_api_key_here
 ```
 
-Visit: [http://localhost:8000](http://localhost:8000)
+### 4. Run Development Server
+```bash
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+Open [http://localhost:8000](http://localhost:8000) in your browser.
 
+---
 
+## Verification & Testing
 
-## Usage Instructions
+Run the full unit test suite from `backend/`:
+```bash
+python -m unittest discover -s tests
+```
 
-1. **Homepage**: Learn how the platform works
-2. **Upload Media**: Use the upload page to submit JPG/PNG or MP3/WAV files
-3. **Detection Results**:
+---
 
-   * Classification: Real or Fake
-   * Confidence Score
-   * If possible, anomaly visualization
-4. **Security**: Your media is deleted immediately after detection
+## Contact & Maintainer
 
-
-
-## Development Guide
-
-### Backend (Flask)
-
-* `app/main.py`: Routes and endpoints
-* `app/image_detection.py`: EfficientNetV2 image classification logic
-* `app/audio_detection.py`: Wav2Vec2-based audio classification
-* `config.yaml`: Set paths to models and hyperparameters
-
-### Frontend
-
-* HTML: `templates/*.html`
-* CSS: `templates/static/css/styles.css`
-* JavaScript: `templates/static/js/script.js`
-
-### Training and Notebooks
-
-* Audio: `notebook/audio_detection/model_train_5.0.ipynb`
-* Image: `notebook/image_detection/model_training.py`
-
-
-
-## Testing
-
-Use sample files in the `test/` folder to verify output.
-
-* `test/deepfakes/`: Example fakes
-* `test/real/`: Example genuine files
-
-
-## Contact
-
-For help or suggestions:
-
-* File an issue in the GitHub repo
-* Email the maintainer: `muthuvarshith290@gmail.com`
-
-
+- **Maintainer**: Muthu Varshith
+- **GitHub**: [MuthuVarshith/FusionTrace](https://github.com/MuthuVarshith/FusionTrace)
+- **Email**: `muthuvarshith290@gmail.com`

@@ -8,7 +8,7 @@ import shutil
 import soundfile as sf
 import tempfile
 from transformers.models.wav2vec2  import Wav2Vec2Processor, Wav2Vec2ForSequenceClassification
-from .config import logger, TEST_DATA_DIR
+from .config import ARTIFACT_DIR, logger
 
 
 def check_ffmpeg():
@@ -44,6 +44,14 @@ def validate_wav_file(wav_path):
         logger.error(f"Failed to validate WAV file {wav_path}: {str(e)}")
         return False
 
+
+def load_wav_with_soundfile(wav_path: str):
+    """Read a WAV without Torchaudio's optional TorchCodec decoder."""
+    samples, sample_rate = sf.read(wav_path, always_2d=True)
+    # SoundFile returns [samples, channels]; model code uses [channels, samples].
+    waveform = torch.from_numpy(samples.T).to(torch.float32)
+    return waveform, sample_rate
+
 def preprocess_audio(audio_path, sample_rate=16000, max_length=4.0):
     """
     Preprocess audio file: convert to wav, resample, convert to mono, normalize, and trim/pad to max_length.
@@ -52,12 +60,12 @@ def preprocess_audio(audio_path, sample_rate=16000, max_length=4.0):
     try:
         # Generate unique filename for saved wav
         unique_filename = f"converted_{uuid.uuid4().hex}.wav"
-        output_wav_path = os.path.join(TEST_DATA_DIR, unique_filename)
+        output_wav_path = os.path.join(ARTIFACT_DIR, unique_filename)
         
         # Handle wav files directly
         if audio_path.lower().endswith('.wav'):
             logger.info(f"Processing WAV file directly: {audio_path}")
-            waveform, orig_sample_rate = torchaudio.load(audio_path)
+            waveform, orig_sample_rate = load_wav_with_soundfile(audio_path)
             
             # Resample to 16kHz if needed
             if orig_sample_rate != sample_rate:
@@ -82,11 +90,11 @@ def preprocess_audio(audio_path, sample_rate=16000, max_length=4.0):
             sf.write(output_wav_path, waveform_np, sample_rate)
             
         # Handle mp3 files with pydub
-        elif audio_path.lower().endswith('.mp3'):
+        elif audio_path.lower().endswith(('.mp3', '.m4a')):
             if not check_ffmpeg():
                 raise RuntimeError("FFmpeg not found. Required for MP3 processing.")
             logger.info(f"Processing MP3 file: {audio_path}")
-            audio = AudioSegment.from_mp3(audio_path)
+            audio = AudioSegment.from_file(audio_path)
             
             # Trim to 4 seconds
             max_length_ms = max_length * 1000
@@ -111,8 +119,8 @@ def preprocess_audio(audio_path, sample_rate=16000, max_length=4.0):
             logger.info(f"Moving WAV to: {output_wav_path}")
             shutil.move(temp_wav_path, output_wav_path)
             
-            # Load with torchaudio
-            waveform, orig_sample_rate = torchaudio.load(output_wav_path)
+            # Load the generated WAV without requiring TorchCodec.
+            waveform, orig_sample_rate = load_wav_with_soundfile(output_wav_path)
         
         else:
             raise ValueError("Unsupported file format. Only .wav and .mp3 are supported.")

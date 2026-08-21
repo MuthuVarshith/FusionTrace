@@ -1,130 +1,114 @@
-from fastapi import FastAPI, File, UploadFile, HTTPException
-from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
-from fastapi.staticfiles import StaticFiles
-from starlette.requests import Request
-from fastapi.middleware.cors import CORSMiddleware
-import os
-import uuid
+"""FusionTrace API: evidence-based media-authenticity analysis."""
+
+from contextlib import asynccontextmanager
 from pathlib import Path
-from transformers import Wav2Vec2Processor, Wav2Vec2ForSequenceClassification
-from .audio_detection import predict_audio
-from .image_detection import detect_image_deepfake
-from .config import AUDIO_MODEL_PATH, TEST_DATA_DIR, logger
+from uuid import UUID
+from typing import Optional
 
-app = FastAPI()
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
+from pydantic import BaseModel, Field
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from starlette.requests import Request
 
-# Add CORS middleware with explicit origins
+from .config import ARTIFACT_DIR, BASE_DIR
+from .service import ScanService
+
+service = ScanService()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    service.initialise()
+    yield
+
+
+app = FastAPI(title="FusionTrace", version="1.0.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    # allow_origins=[
-    #     "http://localhost:3000",
-    #     "http://127.0.0.1:3000",
-    #     "http://localhost:5500",
-    #     "http://127.0.0.1:5500",
-    #     "http://localhost:8080",
-    #     "http://localhost:8000"
-    # ],
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=[origin for origin in __import__("os").getenv("FUSIONTRACE_CORS_ORIGINS", "http://localhost:8000").split(",")],
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
 )
 
-# Mount templates
-templates = Jinja2Templates(directory="templates")
+templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "templates" / "static")), name="static")
 
-# Mount static files
-app.mount("/static", StaticFiles(directory="templates/static"), name="static")
-
-# Ensure test_data directory exists
-Path(TEST_DATA_DIR).mkdir(parents=True, exist_ok=True)
-
-# Load audio model and processor globally
-try:
-    audio_processor = Wav2Vec2Processor.from_pretrained(AUDIO_MODEL_PATH)
-    audio_model = Wav2Vec2ForSequenceClassification.from_pretrained(AUDIO_MODEL_PATH)
-    audio_model.eval()
-    logger.info(f"Loaded audio model and processor from {AUDIO_MODEL_PATH}")
-except Exception as e:
-    logger.error(f"Failed to load audio model or processor from {AUDIO_MODEL_PATH}: {e}")
-    raise
 
 @app.get("/", response_class=HTMLResponse)
-async def get_upload_form(request: Request):
-    """
-    Serve the upload HTML page.
-    """
-    return templates.TemplateResponse("index.html", {"request": request})
+async def home(request: Request):
+    return templates.TemplateResponse(request, "index.html")
+
+
+@app.get("/health")
+async def health():
+    return service.health()
+
+
+@app.post("/api/scans", status_code=202)
+async def create_scan(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+    try:
+        scan = await service.create_scan(file)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    background_tasks.add_task(service.process_scan, scan["id"])
+    return scan
+
+
+@app.get("/api/scans/{scan_id}")
+async def get_scan(scan_id: UUID):
+    scan = service.get_scan(str(scan_id))
+    if scan is None:
+        raise HTTPException(status_code=404, detail="Scan not found")
+    return scan
+
+
+class FeedbackRequest(BaseModel):
+    label: str = Field(..., description="The feedback label for the scan.")
+    notes: Optional[str] = Field(None, max_length=2000, description="Optional reviewer notes.")
+
+
+@app.get("/api/scans")
+async def list_scans(limit: int = 50):
+    return service.get_recent_scans(limit=limit)
+
+
+@app.post("/api/scans/{scan_id}/feedback", status_code=201)
+async def submit_feedback(scan_id: UUID, request: FeedbackRequest):
+    valid_labels = {"confirmed_real", "confirmed_fake", "needs_review"}
+    if request.label not in valid_labels:
+        raise HTTPException(status_code=400, detail=f"Invalid label. Must be one of: {', '.join(valid_labels)}")
+    
+    try:
+        service.add_feedback(str(scan_id), request.label, request.notes)
+    except ValueError as exc:
+        if str(exc) == "Scan not found":
+            raise HTTPException(status_code=404, detail="Scan not found")
+        raise HTTPException(status_code=400, detail=str(exc))
+    
+    return {"status": "success"}
+
+
+@app.get("/api/scans/{scan_id}/heatmap")
+async def get_heatmap(scan_id: UUID):
+    """Serve the GradCAM attention heatmap for an image scan (generated async after verdict)."""
+    path = ARTIFACT_DIR / f"{scan_id}_heatmap.jpg"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Heatmap not yet available.")
+    return FileResponse(str(path), media_type="image/jpeg")
+
+
+# Compatibility endpoints for the original single-request frontend/API.
+@app.post("/image/detect")
+async def image_detect(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+    scan = await create_scan(background_tasks, file)
+    return {"scan_id": scan["id"], "status": scan["status"], "detail": "Use /api/scans/{scan_id} for the report."}
+
 
 @app.post("/audio/detect")
-async def audio_detect(file: UploadFile = File(...)):
-    """
-    Endpoint for audio deepfake detection.
-    """
-    logger.info(f"Received audio file: {file.filename}, type: {file.content_type}, size: {file.size}")
-    if not file.filename or not file.filename.lower().endswith(('.wav', '.mp3')):
-        logger.error("Invalid audio file format")
-        raise HTTPException(status_code=400, detail="Invalid audio file format. Please upload a WAV or MP3 file.")
-
-    # Save uploaded file
-    file_extension = os.path.splitext(file.filename or "")[1]
-    unique_filename = f"uploaded_{uuid.uuid4()}{file_extension}"
-    file_path = os.path.join(TEST_DATA_DIR, unique_filename)
-
-    try:
-        with open(file_path, "wb") as f:
-            f.write(await file.read())
-
-        # Run detection using predict_audio
-        logger.info(f"Processing audio file: {file_path}")
-        prediction, confidence, saved_file_path = predict_audio(file_path, audio_model, audio_processor)
-        logger.info(f"Audio detection completed: prediction={prediction}, confidence={confidence}")
-        return {
-            "prediction": prediction,
-            "confidence": confidence,
-            "saved_file_path": unique_filename  # Return only filename
-        }
-    except Exception as e:
-        logger.error(f"Error processing audio file {file_path}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error processing audio: {str(e)}")
-
-@app.post("/image/detect")
-async def image_detect(file: UploadFile = File(...)):
-    """
-    Endpoint for image deepfake detection.
-    """
-    logger.info(f"Received image file: {file.filename}, type: {file.content_type}, size: {file.size}")
-    if not file.filename or not file.filename.lower().endswith(('.png', '.jpg', '.jpeg')):
-        logger.error("Invalid image file format")
-        raise HTTPException(status_code=400, detail="Invalid image file format. Please upload a PNG, JPG, or JPEG file.")
-
-    # Save uploaded file
-    file_extension = os.path.splitext(file.filename)[1]
-    unique_filename = f"image_{uuid.uuid4()}{file_extension}"
-    file_path = os.path.join(TEST_DATA_DIR, unique_filename)
-
-    try:
-        with open(file_path, "wb") as f:
-            f.write(await file.read())
-
-        # Run detection
-        logger.info(f"Processing image file: {file_path}")
-        result = detect_image_deepfake(file_path)
-        
-        # Extract prediction and confidence
-        prediction = result.get("prediction", "Unknown")
-        confidence = result.get("confidence", "0.00%")
-        
-        if prediction not in ["Real", "Fake"]:
-            prediction = "Unknown"
-        
-        logger.info(f"Image detection completed: prediction={prediction}, confidence={confidence}")
-        return {
-            "prediction": prediction,
-            "confidence": confidence,  # Keep as percentage string (e.g., "95.23%")
-            "saved_file_path": unique_filename  # Return only filename
-        }
-    except Exception as e:
-        logger.error(f"Error processing image file {file_path}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error processing image: {str(e)}")
+async def audio_detect(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+    scan = await create_scan(background_tasks, file)
+    return {"scan_id": scan["id"], "status": scan["status"], "detail": "Use /api/scans/{scan_id} for the report."}
