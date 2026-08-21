@@ -63,9 +63,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function poll(scanId) {
     for (let attempt = 0; attempt < 120; attempt += 1) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      const response = await fetch(`/api/scans/${scanId}`);
-      const scan = await response.json();
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      let response, scan;
+      try {
+        response = await fetch(`/api/scans/${scanId}`);
+        if (!response.ok) throw new Error(`Server error ${response.status}`);
+        scan = await response.json();
+      } catch (err) {
+        // Transient network glitch or server restart — retry silently for up to 3 attempts
+        if (attempt > 3) throw new Error('Server unreachable. The model may still be loading — please wait a moment and try again.');
+        continue;
+      }
       if (scan.status === 'completed') {
         render(scan);
         fetchHistory();
