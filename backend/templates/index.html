@@ -175,7 +175,7 @@
             <div id="upload-area" class="upload-area">
               <div class="upload-icon"></div>
               <h3>Drag & Drop Your File Here</h3>
-              <p>Images, audio, and video: JPG/PNG/WebP, WAV/MP3/M4A, MP4/MOV/WebM</p>
+              <p>All standard image, audio, and video formats supported</p>
               <button class="btn-outline select-file-btn">Select File</button>
               <input type="file" id="file-input" accept=".jpg,.jpeg,.png,.webp,.mp3,.wav,.m4a,.mp4,.mov,.webm" hidden>
             </div>
@@ -274,7 +274,7 @@
 
           <div class="contact-container">
             <div class="contact-form">
-              <form id="contactForm">
+              <form id="contactForm" action="https://formspree.io/f/YOUR_ENDPOINT_HERE" method="POST">
                 <div class="form-group">
                   <label for="name">Full Name</label>
                   <input type="text" id="name" name="name" placeholder="Your name" required>
