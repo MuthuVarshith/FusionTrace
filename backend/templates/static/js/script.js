@@ -46,7 +46,9 @@ document.addEventListener('DOMContentLoaded', () => {
     detectButton.disabled = true;
     detectButton.textContent = 'Submitting…';
     try {
-      const form = new FormData(); form.append('file', file);
+      const form = new FormData();
+      form.append('file', file);
+      form.append('generate_ai_summary', document.getElementById('generate-ai-summary')?.checked ? 'true' : 'false');
       const scanResponse = await fetch('/api/scans', { method: 'POST', body: form });
       if (!scanResponse.ok) throw new Error((await scanResponse.json()).detail || 'Unable to start scan');
       const scan = await scanResponse.json();
@@ -77,7 +79,7 @@ document.addEventListener('DOMContentLoaded', () => {
       if (scan.status === 'completed') {
         render(scan);
         fetchHistory();
-        if (!scan.report?.ai_summary || !scan.report?.heatmap_ready) {
+        if (scan.report?.ai_summary_status === 'pending' || (scan.report?.media_type === 'image' && !scan.report?.heatmap_ready)) {
           pollEnrichments(scanId, scan.report?.media_type);
         }
         return;
@@ -90,8 +92,14 @@ document.addEventListener('DOMContentLoaded', () => {
   async function pollEnrichments(scanId, mediaType) {
     for (let i = 0; i < 6; i++) {
       await new Promise(resolve => setTimeout(resolve, 5000));
-      const response = await fetch(`/api/scans/${scanId}`);
-      const scan = await response.json();
+      let scan;
+      try {
+        const response = await fetch(`/api/scans/${scanId}`);
+        if (!response.ok) continue;  // retry on server error
+        scan = await response.json();
+      } catch (err) {
+        continue;  // retry on network error
+      }
       const r = scan.report;
       if (!r) return;
 
@@ -106,11 +114,12 @@ document.addEventListener('DOMContentLoaded', () => {
         currentScanData = scan;
       }
 
-      const summaryDone = !!r.ai_summary;
+      const summaryDone = r.ai_summary_status !== 'pending';
       const heatmapDone = mediaType !== 'image' || r.heatmap_ready;
       if (summaryDone && heatmapDone) return;
     }
   }
+
 
   // ── Main On-Screen Render Function ─────────────────────────────────────────
   function render(scan) {
@@ -143,10 +152,14 @@ document.addEventListener('DOMContentLoaded', () => {
            <div class="ai-summary-label">🤖 AI Forensic Summary <span class="ai-summary-note">(summarization of detector signals only — not an authenticity verdict)</span></div>
            <p class="ai-summary-text" id="ai-summary-content">${escapeHtml(report.ai_summary)}</p>
          </div>`
-      : `<div class="ai-summary-box ai-summary-loading">
+      : report.ai_summary_status === 'pending' ? `<div class="ai-summary-box ai-summary-loading">
            <div class="ai-summary-label">🤖 AI Forensic Summary</div>
            <p class="ai-summary-text" id="ai-summary-content" style="color:#64748b;font-style:italic;">Generating summary…</p>
-         </div>`;
+         </div>`
+      : report.ai_summary_requested ? `<div class="ai-summary-box ai-summary-loading">
+           <div class="ai-summary-label">🤖 AI Forensic Summary</div>
+           <p class="ai-summary-text" id="ai-summary-content" style="color:#64748b;font-style:italic;">Summary unavailable. The scan result is unchanged.</p>
+         </div>` : '';
 
     resultsContainer.innerHTML = `
       <div class="results-box ${isHigh ? 'bg-error-light' : isMed ? 'bg-warn-light' : 'bg-success-light'}">

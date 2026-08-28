@@ -14,6 +14,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+
+# ── Image model cache ──────────────────────────────────────────────────────────
+# Mirrors the audio model lazy-load pattern in service.py.
+# The model is loaded once on first use, not at import time,
+# so a missing/corrupt .pth file no longer crashes the whole app on startup.
+_image_model_cache: dict = {}
+
+
 # Define EfficientNetV2 model
 class EfficientNetV2(nn.Module):
     def __init__(self, num_classes=1, dropout_rate=0.3, pretrained=False):
@@ -44,17 +52,21 @@ class EfficientNetV2(nn.Module):
             out = out.squeeze(1)
         return out
 
-# Load model
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-try:
-    model = EfficientNetV2()
-    model.load_state_dict(torch.load(IMAGE_MODEL_PATH, map_location=device))
-    model.to(device)
-    model.eval()
-    logger.info(f"Loaded image model from {IMAGE_MODEL_PATH}")
-except Exception as e:
-    logger.error(f"Failed to load image model from {IMAGE_MODEL_PATH}: {e}")
-    raise
+
+def _get_image_model():
+    """Return (model, device), loading from disk only on the first call."""
+    if not _image_model_cache:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        logger.info("Loading image model into memory cache…")
+        m = EfficientNetV2()
+        m.load_state_dict(torch.load(IMAGE_MODEL_PATH, map_location=device))
+        m.to(device)
+        m.eval()
+        _image_model_cache["model"] = m
+        _image_model_cache["device"] = device
+        logger.info("Image model cached and ready (device=%s).", device)
+    return _image_model_cache["model"], _image_model_cache["device"]
+
 
 # Image transform
 transform = transforms.Compose([
@@ -72,6 +84,8 @@ def detect_image_deepfake(image_path: str) -> dict:
         dict: Prediction ("Real" or "Fake") and confidence score.
     """
     try:
+        model, device = _get_image_model()
+
         # Load and preprocess image
         img = Image.open(image_path).convert("RGB")
         img_tensor = transform(img).unsqueeze(0).to(device)
@@ -104,6 +118,8 @@ def generate_gradcam(image_path: str, output_path: str) -> bool:
     """
     try:
         import numpy as np
+
+        model, device = _get_image_model()
 
         orig_img = Image.open(image_path).convert("RGB")
         orig_w, orig_h = orig_img.size

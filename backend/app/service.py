@@ -75,6 +75,9 @@ class ScanService:
                     id TEXT PRIMARY KEY, created_at TEXT NOT NULL, completed_at TEXT,
                     filename TEXT NOT NULL, media_type TEXT NOT NULL, status TEXT NOT NULL,
                     error TEXT, report TEXT NOT NULL DEFAULT '{}')""")
+                columns = {column[1] for column in db.execute("PRAGMA table_info(scans)")}
+                if "generate_ai_summary" not in columns:
+                    db.execute("ALTER TABLE scans ADD COLUMN generate_ai_summary INTEGER NOT NULL DEFAULT 0")
                 db.execute("""CREATE TABLE IF NOT EXISTS scan_feedback (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     scan_id TEXT NOT NULL,
@@ -85,10 +88,12 @@ class ScanService:
                 )""")
                 db.execute("CREATE INDEX IF NOT EXISTS idx_scan_feedback_scan_id_created_at ON scan_feedback(scan_id, created_at DESC)")
         self.cleanup_expired_files()
-        # Pre-warm the audio model in a background thread so the first audio/video
-        # scan doesn't pay the full cold-load penalty.
+        # Pre-warm both ML models in background threads so the first scan
+        # doesn't pay the full cold-load penalty.
         import threading
+        from .image_detection import _get_image_model
         threading.Thread(target=_get_audio_model, daemon=True).start()
+        threading.Thread(target=_get_image_model, daemon=True).start()
 
     def _connection(self):
         connection = sqlite3.connect(DATABASE_PATH)
@@ -96,7 +101,7 @@ class ScanService:
         connection.execute("PRAGMA foreign_keys = ON")
         return connection
 
-    async def create_scan(self, upload: UploadFile) -> dict[str, Any]:
+    async def create_scan(self, upload: UploadFile, generate_ai_summary: bool = False) -> dict[str, Any]:
         self.cleanup_expired_files()
         filename = Path(upload.filename or "upload").name
         kind = media_type(filename)
@@ -111,10 +116,45 @@ class ScanService:
                     destination.unlink(missing_ok=True)
                     raise ValueError(f"File exceeds the {MAX_UPLOAD_MB} MB limit.")
                 output.write(chunk)
+        try:
+            self._validate_upload(destination, kind)
+        except ValueError:
+            destination.unlink(missing_ok=True)
+            raise
         with contextlib.closing(self._connection()) as db:
             with db:
-                db.execute("INSERT INTO scans (id, created_at, filename, media_type, status) VALUES (?, ?, ?, ?, ?)", (scan_id, utc_now(), filename, kind, "queued"))
-        return {"id": scan_id, "filename": filename, "media_type": kind, "status": "queued"}
+                db.execute(
+                    "INSERT INTO scans (id, created_at, filename, media_type, status, generate_ai_summary) VALUES (?, ?, ?, ?, ?, ?)",
+                    (scan_id, utc_now(), filename, kind, "queued", int(generate_ai_summary)),
+                )
+        return {"id": scan_id, "filename": filename, "media_type": kind, "status": "queued", "generate_ai_summary": generate_ai_summary}
+
+    @staticmethod
+    def _validate_upload(path: Path, kind: str) -> None:
+        """Validate file contents, rather than trusting a user-controlled filename."""
+        try:
+            if kind == "image":
+                from PIL import Image
+                with Image.open(path) as image:
+                    image.verify()
+                return
+            if kind == "audio" and path.suffix.lower() == ".wav":
+                import soundfile as sf
+                info = sf.info(path)
+                if info.frames <= 0 or info.samplerate <= 0:
+                    raise ValueError("WAV contains no readable audio frames")
+                return
+            ffmpeg = shutil.which("ffmpeg")
+            if not ffmpeg:
+                raise ValueError("Server media validator is unavailable")
+            completed = subprocess.run(
+                [ffmpeg, "-v", "error", "-i", str(path), "-map", "0", "-f", "null", "-"],
+                capture_output=True, timeout=30, check=False,
+            )
+            if completed.returncode != 0:
+                raise ValueError("file contents cannot be decoded as the declared media type")
+        except (OSError, RuntimeError, subprocess.SubprocessError, ValueError) as exc:
+            raise ValueError(f"Invalid {kind} upload: {exc}") from exc
 
     def process_scan(self, scan_id: str) -> None:
         with contextlib.closing(self._connection()) as db:
@@ -138,7 +178,10 @@ class ScanService:
             report = {
                 "scan_id": scan_id, "media_type": row["media_type"],
                 "evidence": evidence, "assessment": assessment,
-                "ai_summary": None, "heatmap_ready": False,
+                "ai_summary": None,
+                "ai_summary_requested": bool(row["generate_ai_summary"]),
+                "ai_summary_status": "pending" if row["generate_ai_summary"] else "not_requested",
+                "heatmap_ready": False,
                 "retention_hours": RETENTION_HOURS,
             }
             with contextlib.closing(self._connection()) as db:
@@ -149,7 +192,7 @@ class ScanService:
                     )
             # ── Phase 2: enrichments (scan already 'completed' in DB) ────────
             image_path = path if row["media_type"] == "image" else None
-            self._enrich_scan(scan_id, evidence, assessment, image_path)
+            self._enrich_scan(scan_id, evidence, assessment, image_path, bool(row["generate_ai_summary"]))
         except Exception as exc:
             with contextlib.closing(self._connection()) as db:
                 with db:
@@ -295,6 +338,7 @@ class ScanService:
         evidence: list[dict[str, Any]],
         assessment: dict[str, Any],
         image_path: Path | None,
+        generate_ai_summary: bool,
     ) -> None:
         """Phase-2 enrichments: GradCAM heatmap + AI summary.
 
@@ -316,13 +360,17 @@ class ScanService:
                 logger.warning("GradCAM enrichment failed: %s", exc)
 
         # ── AI forensic summary ───────────────────────────────────────────────
-        try:
-            from .ai_summary import generate_summary
-            summary = generate_summary(evidence, assessment)
-            if summary:
-                self._patch_report(scan_id, ai_summary=summary)
-        except Exception as exc:
-            logger.warning("AI summary enrichment failed: %s", exc)
+        if generate_ai_summary:
+            try:
+                from .ai_summary import generate_summary
+                summary = generate_summary(evidence, assessment)
+                if summary:
+                    self._patch_report(scan_id, ai_summary=summary, ai_summary_status="ready")
+                else:
+                    self._patch_report(scan_id, ai_summary_status="unavailable")
+            except Exception as exc:
+                logger.warning("AI summary enrichment failed: %s", exc)
+                self._patch_report(scan_id, ai_summary_status="unavailable")
 
     def get_scan(self, scan_id: str) -> dict[str, Any] | None:
         with contextlib.closing(self._connection()) as db:
