@@ -1,31 +1,39 @@
-# Environment & Secrets
+# Secrets and local configuration
 .env
 *.env
-backend/.env
 
 # Python
 __pycache__/
-*.pyc
-
-# Virtual env
-venv/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+wheels/
 .venv/
-backend/venv/
+venv/
 
-# Database & Upload Data
-backend/data/*.db
-backend/data/uploads/*
-backend/data/artifacts/*
-!backend/data/uploads/.gitkeep
-!backend/data/artifacts/.gitkeep
+# Tool caches
+.cache/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
 
-# VSCode & IDE
+# Runtime data: uploads, artifacts, SQLite database (FUSIONTRACE_DATA_DIR)
+backend/data/
+
+# Model weights are downloaded from the Hugging Face Hub by
+# backend/scripts/download_models.py and never committed (see docs/lfs-cleanup.md).
+backend/models/
+
+# Experiment tracking / evaluation outputs (backend/mlops)
+mlruns/
+mlartifacts/
+
+# Hugging Face Space staging directory (deploy/hf-spaces/prepare_space.sh)
+.space-build/
+
+# IDE / OS
 .vscode/
 .idea/
-
-# Models cache
-.cache/
-
-# OS
 .DS_Store
 Thumbs.db
