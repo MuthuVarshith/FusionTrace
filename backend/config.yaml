@@ -1,4 +1,39 @@
 model_path:
+  # Legacy FusionTrace weights (FUSIONTRACE_AUDIO_MODEL_PATH / FUSIONTRACE_IMAGE_MODEL_PATH override).
   audio: models/audio_model
   image: models/image_model/EfficientnetV2_model.pth
 data_dir: data
+# Root for detector weights downloaded from the Hugging Face Hub (FUSIONTRACE_MODEL_DIR overrides).
+model_dir: models
+
+# Which detector produces each signal. `model: default` uses the DEFAULT declared in
+# app/detectors/<kind>/__init__.py. Every key can be overridden from the environment:
+#   FUSIONTRACE_<KIND>_ENABLED=true|false
+#   FUSIONTRACE_<KIND>_MODEL=<registry key>
+#   FUSIONTRACE_<KIND>_WEIGHT=<float>
+# `options` is passed to the detector unchanged; each detector documents its own keys.
+detectors:
+  image:
+    enabled: true
+    model: default
+    weight: 0.9
+    options: {}
+  audio:
+    enabled: true
+    model: default
+    weight: 0.9
+    options: {}
+  video:
+    # Temporal signal (between-frame consistency). New in v2; weight is a starting
+    # point, not a calibrated value.
+    enabled: true
+    model: default
+    weight: 0.7
+    options: {}
+
+pipeline:
+  video:
+    frame_interval_seconds: 5
+    max_frames: 12
+    frame_weight: 0.8   # image detector on sampled frames (unchanged from v1)
+    audio_weight: 0.9   # audio detector on the soundtrack (unchanged from v1)

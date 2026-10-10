@@ -6,6 +6,7 @@ signals. A verdict is an assessment, never proof that a file is fake.
 
 import json
 import mimetypes
+import os
 import shutil
 import sqlite3
 import subprocess
@@ -18,26 +19,12 @@ from uuid import uuid4
 
 from fastapi import UploadFile
 
-from .config import ARTIFACT_DIR, AUDIO_MODEL_PATH, DATABASE_PATH, IMAGE_MODEL_PATH, MAX_UPLOAD_MB, RETENTION_HOURS, UPLOAD_DIR
+from . import pipeline
+from .config import ARTIFACT_DIR, DATABASE_PATH, MAX_UPLOAD_MB, RETENTION_HOURS, UPLOAD_DIR
+from .detectors import registry
+from .detectors.base import AnalysisContext, DetectorError, MediaKind
 
 ALLOWED_EXTENSIONS = {"image": {".jpg", ".jpeg", ".png", ".webp"}, "audio": {".wav", ".mp3", ".m4a"}, "video": {".mp4", ".mov", ".webm"}}
-
-# ── Audio model cache ──────────────────────────────────────────────────────────
-# Wav2Vec2 takes 3-8 seconds to load from disk. Loading it once at startup and
-# keeping it in memory eliminates that cost from every subsequent audio/video scan.
-_audio_model_cache: dict[str, Any] = {}
-
-
-def _get_audio_model() -> tuple[Any, Any]:
-    """Return (model, processor), loading from disk only on the first call."""
-    if not _audio_model_cache:
-        from transformers import Wav2Vec2ForSequenceClassification, Wav2Vec2Processor
-        from .config import logger
-        logger.info("Loading audio model into memory cache…")
-        _audio_model_cache["processor"] = Wav2Vec2Processor.from_pretrained(str(AUDIO_MODEL_PATH))
-        _audio_model_cache["model"] = Wav2Vec2ForSequenceClassification.from_pretrained(str(AUDIO_MODEL_PATH))
-        logger.info("Audio model cached and ready.")
-    return _audio_model_cache["model"], _audio_model_cache["processor"]
 
 
 def utc_now() -> str:
@@ -88,12 +75,11 @@ class ScanService:
                 )""")
                 db.execute("CREATE INDEX IF NOT EXISTS idx_scan_feedback_scan_id_created_at ON scan_feedback(scan_id, created_at DESC)")
         self.cleanup_expired_files()
-        # Pre-warm both ML models in background threads so the first scan
-        # doesn't pay the full cold-load penalty.
-        import threading
-        from .image_detection import _get_image_model
-        threading.Thread(target=_get_audio_model, daemon=True).start()
-        threading.Thread(target=_get_image_model, daemon=True).start()
+        # Pre-warm the configured detectors so the first scan doesn't pay the
+        # cold-load penalty. FUSIONTRACE_WARMUP=0 skips it (tests, low memory).
+        if os.getenv("FUSIONTRACE_WARMUP", "1") != "0":
+            import threading
+            threading.Thread(target=registry.warm_up, daemon=True).start()
 
     def _connection(self):
         connection = sqlite3.connect(DATABASE_PATH)
@@ -168,11 +154,7 @@ class ScanService:
             evidence = [self._file_evidence(path)]
             if row["media_type"] == "image":
                 evidence.append(self._image_metadata_evidence(path))
-                evidence.append(self._image_evidence(path))
-            elif row["media_type"] == "audio":
-                evidence.append(self._audio_evidence(path))
-            else:
-                evidence.extend(self._video_evidence(path, scan_id))
+            evidence.extend(pipeline.analyze(row["media_type"], path, ARTIFACT_DIR / scan_id))
             assessment = fuse_evidence(evidence)
             # ── Phase 1: save verdict immediately so the UI can render ──────
             report = {
@@ -205,121 +187,12 @@ class ScanService:
                 digest.update(chunk)
         return {"source": "file-inspection", "label": "File inspection", "risk": 0.0, "weight": 0.1, "details": {"size_bytes": path.stat().st_size, "mime_type": mimetypes.guess_type(path.name)[0], "sha256": digest.hexdigest()}}
 
-    def _image_evidence(self, path: Path) -> dict[str, Any]:
-        from .image_detection import detect_image_deepfake
-        result = detect_image_deepfake(str(path))
-        confidence = float(result["confidence"].rstrip("%")) / 100
-        risk = confidence if result["prediction"] == "Fake" else 1 - confidence
-        return {"source": "image-model", "label": "Image manipulation model", "risk": risk, "weight": 0.9, "details": result}
-
     def _image_metadata_evidence(self, path: Path) -> dict[str, Any]:
         from PIL import Image
         with Image.open(path) as image:
             metadata = {str(key): str(value)[:200] for key, value in image.getexif().items()}
             details = {"format": image.format, "dimensions": [image.width, image.height], "exif_present": bool(metadata), "exif": metadata}
         return {"source": "image-metadata", "label": "Image metadata inspection", "risk": None, "weight": 0, "details": details}
-
-    def _audio_evidence(self, path: Path) -> dict[str, Any]:
-        from .audio_detection import predict_audio
-        audio_model, audio_processor = _get_audio_model()
-        prediction, confidence, _ = predict_audio(str(path), audio_model, audio_processor)
-        probability = float(confidence.rstrip("%")) / 100
-        risk = probability if prediction == "Fake" else 1 - probability
-        if prediction == "Fake" and probability >= 0.9:
-            review = "high-priority"
-            triage = "High-risk signal — manual review required"
-        elif probability < 0.75:
-            review = "standard"
-            triage = "Low-confidence signal — inconclusive"
-        else:
-            review = "standard"
-            triage = "Automated signal — verify with additional evidence"
-        return {"source": "audio-model", "label": "Synthetic voice model", "risk": risk, "weight": 0.9, "details": {"prediction": prediction, "confidence": confidence, "triage": triage, "review_priority": review}}
-
-    def _video_evidence(self, path: Path, scan_id: str) -> list[dict[str, Any]]:
-        """Multimodal video analysis: per-frame image scoring + audio track extraction."""
-        if not shutil.which("ffmpeg"):
-            return [{"source": "video-pipeline", "label": "Video analysis unavailable", "risk": None, "weight": 0, "details": {"reason": "FFmpeg is not installed in the runtime."}}]
-
-        frames_dir = ARTIFACT_DIR / scan_id
-        frames_dir.mkdir(exist_ok=True)
-
-        # ── 1. Extract frames at 1 per 5 s, up to 12 ──────────────────────────
-        subprocess.run(
-            ["ffmpeg", "-y", "-i", str(path), "-vf", "fps=1/5", "-frames:v", "12",
-             str(frames_dir / "frame-%02d.jpg")],
-            check=True, capture_output=True,
-        )
-        frames = sorted(frames_dir.glob("*.jpg"))
-        if not frames:
-            return [{"source": "video-pipeline", "label": "Video frame extraction", "risk": None, "weight": 0,
-                     "details": {"reason": "No analyzable frames were extracted."}}]
-
-        # Score each frame and attach a timestamp (frame N → starts at (N-1)*5 s)
-        per_frame = []
-        for idx, frame_path in enumerate(frames):
-            result = self._image_evidence(frame_path)
-            timestamp_s = idx * 5
-            per_frame.append({"timestamp_seconds": timestamp_s, "risk": result["risk"], "details": result["details"]})
-
-        risks = [f["risk"] for f in per_frame]
-        average_risk = sum(risks) / len(risks)
-        peak = max(per_frame, key=lambda f: f["risk"])
-
-        frame_evidence: dict[str, Any] = {
-            "source": "video-frame-model",
-            "label": "Sampled video-frame analysis",
-            "risk": average_risk,
-            "weight": 0.8,
-            "details": {
-                "frames_analyzed": len(frames),
-                "average_risk_score": f"{average_risk * 100:.1f}%",
-                "peak_frame": {
-                    "timestamp_seconds": peak["timestamp_seconds"],
-                    "risk_score": f"{peak['risk'] * 100:.1f}%",
-                    "image_model": peak["details"],
-                },
-                "per_frame_scores": [
-                    {"timestamp_seconds": f["timestamp_seconds"], "risk_score": f"{f['risk'] * 100:.1f}%"}
-                    for f in per_frame
-                ],
-                "note": "Frame-level assessment only. Lip-sync and temporal models are not included.",
-            },
-        }
-
-        # ── 2. Extract audio track ─────────────────────────────────────────────
-        audio_path = frames_dir / "extracted_audio.wav"
-        try:
-            probe = subprocess.run(
-                ["ffmpeg", "-y", "-i", str(path), "-vn", "-ar", "16000", "-ac", "1",
-                 str(audio_path)],
-                capture_output=True,
-            )
-            has_audio = audio_path.exists() and audio_path.stat().st_size > 100
-        except Exception:
-            has_audio = False
-
-        if has_audio:
-            try:
-                audio_evidence = self._audio_evidence(audio_path)
-                audio_evidence["label"] = "Synthetic voice model (extracted from video)"
-                audio_evidence["source"] = "video-audio-model"
-            except Exception as exc:
-                audio_evidence = {
-                    "source": "video-audio-model",
-                    "label": "Synthetic voice model (extracted from video)",
-                    "risk": None, "weight": 0,
-                    "details": {"reason": f"Audio analysis failed: {exc}"},
-                }
-        else:
-            audio_evidence = {
-                "source": "video-audio-model",
-                "label": "Synthetic voice model (extracted from video)",
-                "risk": None, "weight": 0,
-                "details": {"reason": "No audio track found in this video."},
-            }
-
-        return [frame_evidence, audio_evidence]
 
     def _patch_report(self, scan_id: str, **fields: Any) -> None:
         """Update specific fields inside the JSON report column without touching other fields."""
@@ -352,12 +225,14 @@ class ScanService:
         # ── GradCAM heatmap (image scans only) ────────────────────────────────
         if image_path is not None:
             try:
-                from .image_detection import generate_gradcam
-                heatmap_path = ARTIFACT_DIR / f"{scan_id}_heatmap.jpg"
-                if generate_gradcam(str(image_path), str(heatmap_path)):
-                    self._patch_report(scan_id, heatmap_ready=True)
-            except Exception as exc:
-                logger.warning("GradCAM enrichment failed: %s", exc)
+                detector = registry.get(MediaKind.IMAGE)
+                if detector is not None and detector.supports_explanation:
+                    heatmap_path = ARTIFACT_DIR / f"{scan_id}_heatmap.jpg"
+                    ctx = AnalysisContext(work_dir=ARTIFACT_DIR / scan_id, options=registry.settings(MediaKind.IMAGE).options)
+                    if detector.explain(image_path, heatmap_path, ctx):
+                        self._patch_report(scan_id, heatmap_ready=True, heatmap_model=detector.info.to_report())
+            except (DetectorError, OSError) as exc:
+                logger.warning("Explanation enrichment failed: %s", exc)
 
         # ── AI forensic summary ───────────────────────────────────────────────
         if generate_ai_summary:
@@ -431,7 +306,19 @@ class ScanService:
                 raise
 
     def health(self) -> dict[str, Any]:
-        return {"status": "ok", "image_model_present": IMAGE_MODEL_PATH.is_file(), "retention_hours": RETENTION_HOURS}
+        detectors: dict[str, Any] = {}
+        for kind in MediaKind:
+            current = registry.settings(kind)
+            entry: dict[str, Any] = {"enabled": current.enabled, "model": current.model, "weight": current.weight}
+            try:
+                detector = registry.get(kind)
+                entry["available"] = detector is not None and detector.is_available()
+                entry["loaded"] = detector is not None and detector.loaded
+            except DetectorError:
+                entry["available"] = False
+                entry["loaded"] = False
+            detectors[kind.value] = entry
+        return {"status": "ok", "detectors": detectors, "retention_hours": RETENTION_HOURS}
 
     def cleanup_expired_files(self) -> None:
         """Delete stored source files and artifacts older than the configured retention window."""
