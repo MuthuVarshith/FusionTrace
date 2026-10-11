@@ -57,6 +57,11 @@ def report(risks: np.ndarray, labels: np.ndarray, threshold: float) -> dict[str,
     }
 
 
+def same_source_note(name: str) -> str:
+    """Face-swap results are same-source only until a second, licence-checked face-swap set is in use."""
+    return "same-source only" if "faceswap" in name.lower() else ""
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--adapter", type=Path, required=True, help="run folder from finetune_lora.py (contains adapter/ and threshold.json)")
@@ -85,16 +90,18 @@ def main(argv: list[str] | None = None) -> int:
         base_risk, labels = model.score(base, loader, device)
         tuned_risk, _ = model.score(tuned, loader, device)
         results[name] = {
+            "note": same_source_note(name),
             "base": report(base_risk, labels, 0.5),
             "finetuned": report(tuned_risk, labels, tuned_threshold),
         }
 
-    lines = ["| test set | model | threshold | AUC | fake recall | real recall | n real / fake |", "|---|---|---|---|---|---|---|"]
+    lines = ["| test set | model | threshold | AUC | fake recall | real recall | n real / fake | note |", "|---|---|---|---|---|---|---|---|"]
     for name, pair in results.items():
+        note = same_source_note(name)
         for label, key in (("base (v2 default)", "base"), ("LoRA fine-tune", "finetuned")):
             r = pair[key]
             auc = "n/a" if r["auc"] is None else f"{r['auc']:.3f}"
-            lines.append(f"| {name} | {label} | {r['threshold']:.4f} | {auc} | {r['fake_recall']:.3f} | {r['real_recall']:.3f} | {r['n_real']} / {r['n_fake']} |")
+            lines.append(f"| {name} | {label} | {r['threshold']:.4f} | {auc} | {r['fake_recall']:.3f} | {r['real_recall']:.3f} | {r['n_real']} / {r['n_fake']} | {note} |")
     table = "\n".join(lines)
     print(table)
     if args.out:

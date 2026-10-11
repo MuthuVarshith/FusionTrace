@@ -9,9 +9,9 @@ resize shorter side to 440, centre-crop 384, ImageNet normalisation.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
-from ..base import DetectorInfo, MediaKind, ModelUnavailableError, WeightsSpec
+from ..base import AnalysisContext, DetectorInfo, MediaKind, ModelUnavailableError, WeightsSpec
 from ._common import (
     IMAGENET_MEAN,
     IMAGENET_STD,
@@ -19,6 +19,7 @@ from ._common import (
     sigmoid,
     token_gradcam,
 )
+from .lora import LoraSettings
 
 if TYPE_CHECKING:
     import numpy as np
@@ -31,6 +32,7 @@ SUBDIR = "image-commfor-vit-s384"
 
 
 class CommunityForensicsDetector(TorchImageDetector):
+    _lora: Any = None  # set by _build_module when a LoRA adapter is enabled
     info: ClassVar[DetectorInfo] = DetectorInfo(
         name="commfor-vit-s384",
         kind=MediaKind.IMAGE,
@@ -60,7 +62,27 @@ class CommunityForensicsDetector(TorchImageDetector):
         module = timm.create_model("vit_small_patch16_384", pretrained=False, num_classes=1)
         state = {key.removeprefix("vit."): value for key, value in load_file(str(self._weights_file())).items()}
         module.load_state_dict(state, strict=True)
+        self._lora = None
+        settings = LoraSettings.from_options(self.options)
+        if settings.enabled:
+            from .lora import merged_module, resolve
+
+            self._lora = resolve(settings, cache_dir=self.model_dir / "lora")
+            module = merged_module(module, self._lora.adapter_dir)
         return module
+
+    def threshold(self, ctx: AnalysisContext | None) -> float:
+        # An adapter brings the threshold chosen on its validation split, unless one is set explicitly.
+        explicit = "threshold" in self.options or (ctx is not None and "threshold" in ctx.options)
+        if self._lora is not None and not explicit:
+            return self._lora.threshold
+        return super().threshold(ctx)
+
+    def _details(self, pixels: torch.Tensor) -> dict[str, Any]:
+        details = super()._details(pixels)
+        if self._lora is not None:
+            details["lora"] = self._lora.provenance
+        return details
 
     def _preprocess(self, image: Image.Image) -> torch.Tensor:
         from torchvision import transforms

@@ -19,6 +19,14 @@ detectors:
     weight: 0.9
     options:
       threshold: 0.5
+      # Optional LoRA fine-tune (off by default). Loads the MLflow 'candidate' alias or a local run folder.
+      # See docs/how-to-finetune.md. Its threshold is used unless 'threshold' is set above.
+      lora:
+        enabled: false
+        source: mlflow          # mlflow | path
+        model_name: fusiontrace-image-lora
+        alias: candidate        # never 'production' unless the run has been reviewed
+        path: null              # when source is 'path': a run folder with adapter/ and threshold.json
       # normalization: imagenet  # efficientnetv2-legacy only: imagenet (matches training) | half (v1 inference)
   audio:
     enabled: true
