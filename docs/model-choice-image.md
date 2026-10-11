@@ -41,7 +41,8 @@ Both sets were run on CPU with 2 threads. The decision threshold is 0.5. Each mo
 | siglip-deepfake-v1 | public | 90/90 | 0.100 | 0.467 | 0.155 | 1.28 |
 | efficientnetv2-legacy (ImageNet norm) | local | 9/11 | 0.889 | 0.909 | 0.970 | 1.23 |
 | efficientnetv2-legacy (ImageNet norm) | public | 90/90 | 0.011 | 1.000 | 0.821 | 1.02 |
-HALFNORM_ROWS
+| efficientnetv2-legacy (v1 half norm) | local | 9/11 | 1.000 | 1.000 | 1.000 | 1.13 |
+| efficientnetv2-legacy (v1 half norm) | public | 90/90 | 0.000 | 1.000 | 0.791 | 1.20 |
 
 The s/img column includes first-call warm-up and the load of other agents' processes on the machine. Treat it as a rough figure.
 
@@ -59,7 +60,11 @@ These numbers are not a general accuracy claim.
 
 ## Legacy preprocessing check (v1 `app/image_detection.py` vs `backend/notebook/image_detection/`)
 
-- **Normalisation mismatch (a real bug).** Training used ImageNet mean/std: `transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])` in `image_deepfake_detection (2).ipynb` cell 2 and in `model_training.py` around line 310. The v1 inference code used mean = std = 0.5. The wrapper now defaults to `normalization: imagenet`; `half` keeps the v1 behaviour for comparison.
+- **Normalisation mismatch (a real bug).** Training used ImageNet mean/std: `transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])` in `image_deepfake_detection (2).ipynb` cell 2 and in `model_training.py` around line 310. The v1 inference code used mean = std = 0.5. The wrapper now defaults to `normalization: imagenet`; `half` keeps the v1 behaviour for comparison. In the check:
+  - Local set (resembles the training data): `half` scores higher, AUC 1.000 vs 0.970.
+  - Public set: `imagenet` scores higher, AUC 0.821 vs 0.791.
+
+  Neither setting fixes generalisation, so the mismatch is not the root cause.
 - **Class order is consistent.** Training labels a folder named `real` as 0 and everything else as 1 (notebook cell 1). Inference treats sigmoid ≥ 0.5 as Fake, which matches.
 - **RGB and resize are consistent.** Both use PIL RGB and `Resize((224, 224))`. Training adds random crop, flip and jitter augmentations.
 - **No face cropping at either stage.** Training images are already-aligned face crops (FFHQ/StyleGAN at 256 px). Arbitrary user photos are therefore far outside the training distribution.
