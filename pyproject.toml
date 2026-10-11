@@ -45,6 +45,11 @@ dev = [
     "pytest==9.1.1",
     "httpx==0.28.1",
 ]
+# LoRA fine-tuning of the image detector (backend/finetune, scripts/finetune_lora.py).
+finetune = [
+    "peft==0.21.2",
+    "mlflow-skinny==3.17.0",
+]
 # Model evaluation, ONNX export/quantisation and experiment tracking (backend/mlops, workstream E).
 mlops = [
     "onnx==1.19.1",
