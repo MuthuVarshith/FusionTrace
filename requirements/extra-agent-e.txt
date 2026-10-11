@@ -1,0 +1,8 @@
+# Workstream E (MLOps) extra dependencies, tested versions (Python 3.13, Windows, CPU).
+# Installed with the existing venv pinned as constraints, so nothing else changed.
+onnx==1.19.1            # export check + quantisation (1.23 needs protobuf>=6.31; venv has 5.29.6)
+onnxruntime==1.30.0     # already present; parity, quantisation, benchmarks
+# Optional:
+mlflow-skinny==3.17.0   # --mlflow tracking + local model registry (file store needs MLFLOW_ALLOW_FILE_STORE, set automatically)
+psutil==7.0.0           # benchmark peak RSS
+scikit-learn==1.6.0     # only used by a test to cross-check AUC
