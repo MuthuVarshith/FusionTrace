@@ -108,7 +108,8 @@ In Colab: **Runtime → Change runtime type → T4 GPU**. Then, in cells:
 !git clone -b upgrade/v2 https://github.com/MuthuVarshith/FusionTrace.git
 %cd FusionTrace
 # Do NOT run `pip install -r requirements.txt` here: it pins CPU-only torch and would replace Colab's GPU build.
-!pip install -q "timm==1.0.19" "peft==0.21.2" "mlflow-skinny==3.17.0" "safetensors==0.6.1" "huggingface-hub==0.34.3" pyyaml python-dotenv
+!pip install -q "timm==1.0.19" "peft==0.21.2" "mlflow-skinny==3.17.0" pyyaml python-dotenv
+# Leave huggingface-hub and safetensors at Colab's versions: pinning them breaks Colab's diffusers and gradio.
 # Colab ships torchao 0.10.0, which peft 0.21.2 rejects (needs >= 0.16.0). This code does not use torchao, so remove it.
 !pip uninstall -y torchao
 !python -c "import torch; print(torch.__version__, 'cuda:', torch.cuda.is_available())"
