@@ -1,41 +1,33 @@
-# Git
-.git
-.gitignore
-.gitattributes
+# The build context is the repository root. This is an allow-list: only what
+# the image needs reaches the Docker daemon. Everything else stays out,
+# including .git, .github, .venv, docs/, resources/, deploy/hf-spaces/, local
+# worktrees (.claude/), uv.lock and pyproject.toml (the image installs from the
+# generated requirements.txt).
+# Note: .dockerignore has no trailing comments; keep comments on their own lines.
+*
+!requirements.txt
+!deploy/docker/
+!backend/
 
-# Python cache files
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-.pytest_cache/
+# Inside backend/, ship runtime code only. Excluded:
+# local uploads/artifacts/SQLite, weights (downloaded at container start),
+# training notebooks, sample media, unit tests, and secrets (pass them as
+# environment variables instead).
+backend/data
+backend/models
+backend/notebook
+backend/test
+backend/tests
+backend/.env
+backend/**/*.env
 
-# Distribution / packaging
-dist/
-build/
-*.egg-info/
-
-# Virtual environments
-.venv/
-venv/
-env/
-ENV/
-
-# IDE specific files
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# Test data (if not needed in the container)
-backend/data/test_data/
-
-# Notebooks (not needed for running the application)
-backend/notebook/
-
-# Documentation
-resources/docs/
-
-# Test files (if not needed in production)
-backend/test/
+# Caches and virtual environments anywhere.
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/.venv
+**/venv
+**/.cache
+**/mlruns
