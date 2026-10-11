@@ -28,12 +28,18 @@ logger = logging.getLogger("fusiontrace")
 
 _FAKE_NAMES = {"fake", "spoof", "synthetic", "deepfake", "ai", "generated"}
 _REAL_NAMES = {"real", "bonafide", "bona-fide", "bona_fide", "genuine", "human"}
-_MIN_WEIGHTS_BYTES = 1_000_000  # anything smaller is a Git LFS pointer, not weights
+_LFS_POINTER_PREFIX = b"version https://git-lfs"
 
 
 def _weights_present(directory: Path) -> bool:
+    """True when config and real safetensors weights exist (a Git LFS pointer file does not count)."""
     weights = directory / "model.safetensors"
-    return (directory / "config.json").is_file() and weights.is_file() and weights.stat().st_size > _MIN_WEIGHTS_BYTES
+    if not (directory / "config.json").is_file() or not weights.is_file():
+        return False
+    if weights.stat().st_size < 1024:
+        with weights.open("rb") as handle:
+            return not handle.read(len(_LFS_POINTER_PREFIX)).startswith(_LFS_POINTER_PREFIX)
+    return True
 
 
 def _softmax(logits: np.ndarray) -> np.ndarray:
