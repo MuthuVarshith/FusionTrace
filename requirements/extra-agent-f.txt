@@ -1,0 +1,1 @@
+# Workstream F: no new packages required (numpy, pillow, ffmpeg/ffprobe on PATH already in use).
