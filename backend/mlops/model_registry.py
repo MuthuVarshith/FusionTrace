@@ -86,7 +86,8 @@ def register_onnx_model(
         raise tracking.MlflowUnavailableError(f"{model_path.name} failed its parity check; pass --allow-failed-parity to register it anyway")
     model_name = name or default_name(metadata)
     version_tags = _tags(metadata, tags)
-    with tracking.run(EXPERIMENT, run_name=f"register-{model_name}-{metadata.get('precision')}", tags={"fusiontrace.tool": "model_registry"}, uri=uri) as (mlflow, active):
+    run_name = f"register-{model_name}-{metadata.get('precision')}"
+    with tracking.run(EXPERIMENT, run_name=run_name, tags={"fusiontrace.tool": "model_registry"}, uri=uri) as (mlflow, active):
         mlflow.log_params(tracking.clean_params({"model.name": model_name, "model.file": model_path.name, "opset": metadata.get("opset")}))
         mlflow.log_metrics(tracking.clean_metrics({"size_bytes": metadata.get("size_bytes"), **{
             f"parity.{key}": value for key, value in (metadata.get("parity") or {}).items() if key != "files"

@@ -147,7 +147,9 @@ def log_evaluation(
         return active.info.run_id
 
 
-def log_benchmark(report: Mapping[str, Any], *, json_path: Path, markdown_path: Path, experiment: str = "fusiontrace-benchmarks", uri: str | None = None) -> str:
+def log_benchmark(
+    report: Mapping[str, Any], *, json_path: Path, markdown_path: Path, experiment: str = "fusiontrace-benchmarks", uri: str | None = None
+) -> str:
     detector = report["detector"]
     params = {"detector.name": detector.get("name"), "detector.kind": detector.get("kind"), "detector.version": detector.get("version"),
               **{key: report.get(key) for key in ("runs", "warmup", "threads", "isolated")}, "platform": report["environment"].get("platform")}
