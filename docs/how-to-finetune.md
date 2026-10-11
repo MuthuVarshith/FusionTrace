@@ -70,7 +70,7 @@ This downloads the two sources from the Hub, writes `images/real`, `images/fake`
 `dataset.json` and `SOURCES.md`, and checks the splits. It needs about 1 GB of disk and several
 minutes.
 
-Evaluation folders are built from the **test split only**: `eval/faceswap_same_source/` (513 real,
+The same command builds the evaluation folders (`--eval-only` rebuilds only those from an existing manifest). They are built from the **test split only**: `eval/faceswap_same_source/` (513 real,
 925 fake) and `eval/ai_faces_regression/` (90 FairFace test reals, 90 LucaCorvitto fakes).
 
 ## Commands

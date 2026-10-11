@@ -40,6 +40,11 @@ FAIRFACE_LICENCE = "CC-BY-4.0"
 FACESWAP_REPO = "bitmind/face-swap"
 FACESWAP_FILES = ("data/face_train.parquet", "data/face_validation.parquet", "data/face_test.parquet")
 FACESWAP_LICENCE = "Apache-2.0"
+REGRESSION_FAKE_REPO = "LucaCorvitto/DeepFake-Faces-Stimuli"
+REGRESSION_FAKE_REVISION = "28bd8dc650b0fa436205c93a7261855130f3009e"
+REGRESSION_FAKE_PREFIX = "generated/"
+REGRESSION_FAKE_COUNT = 90
+REGRESSION_REAL_COUNT = 90
 
 
 @dataclass(frozen=True)
@@ -165,6 +170,48 @@ def build(out: Path, reals: int, seed: int, dup_distance: int, fractions: tuple[
     return stats
 
 
+def load_regression_fakes() -> list[bytes]:
+    """Stable Diffusion faces (MIT), not used in training. Same source and revision as check_image_models.py."""
+    from huggingface_hub import HfApi, hf_hub_download
+
+    files = sorted(
+        f for f in HfApi().list_repo_files(REGRESSION_FAKE_REPO, repo_type="dataset", revision=REGRESSION_FAKE_REVISION)
+        if f.startswith(REGRESSION_FAKE_PREFIX)
+    )[:REGRESSION_FAKE_COUNT]
+    return [Path(hf_hub_download(REGRESSION_FAKE_REPO, f, repo_type="dataset", revision=REGRESSION_FAKE_REVISION, cache_dir=_cache())).read_bytes() for f in files]
+
+
+def build_eval(out: Path, seed: int) -> dict[str, int]:
+    """Evaluation folders from the manifest's **test** rows only. Never used for training or thresholds."""
+    import shutil
+
+    rows = data.read_manifest(out / "manifest.csv")
+    test = [r for r in rows if r.split == "test"]
+    test_real = [r for r in test if r.label == 0]
+    test_fake = [r for r in test if r.label == 1]
+    root = out / "eval"
+
+    def fill(folder: Path, items: list[tuple[Path, int]]) -> None:
+        for sub in ("real", "fake"):
+            shutil.rmtree(folder / sub, ignore_errors=True)
+            (folder / sub).mkdir(parents=True, exist_ok=True)
+        for index, (source, label) in enumerate(items):
+            target = folder / ("real" if label == 0 else "fake") / f"{index:04d}{source.suffix}"
+            shutil.copy(source, target)
+
+    fill(root / "faceswap_same_source", [(r.path, r.label) for r in test_real + test_fake])
+    picked_real = random.Random(seed).sample(test_real, min(REGRESSION_REAL_COUNT, len(test_real)))
+    fakes = out / "regression_fakes"
+    fakes.mkdir(parents=True, exist_ok=True)
+    fake_paths = []
+    for index, payload in enumerate(load_regression_fakes()):
+        path = fakes / f"luca_{index:03d}.jpg"
+        path.write_bytes(payload)
+        fake_paths.append(path)
+    fill(root / "ai_faces_regression", [(r.path, 0) for r in picked_real] + [(p, 1) for p in fake_paths])
+    return {"faceswap_real": len(test_real), "faceswap_fake": len(test_fake), "regression_real": len(picked_real), "regression_fake": len(fake_paths)}
+
+
 def write_sources(out: Path, samples: list[Sample]) -> None:
     text = f"""# Dataset sources and licences
 
@@ -186,9 +233,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=13)
     parser.add_argument("--dup-distance", type=int, default=6, help="dHash Hamming distance that links near-duplicates")
     parser.add_argument("--fractions", default="0.8,0.1,0.1")
+    parser.add_argument("--eval-only", action="store_true", help="rebuild only the eval folders from an existing manifest")
     args = parser.parse_args(argv)
+    if args.eval_only:
+        print(json.dumps(build_eval(args.out, args.seed), indent=2))
+        return 0
     fractions = tuple(float(x) for x in args.fractions.split(","))
     stats = build(args.out, args.reals, args.seed, args.dup_distance, fractions)
+    stats["eval"] = build_eval(args.out, args.seed)
+    (args.out / "dataset.json").write_text(json.dumps(stats, indent=2), encoding="utf-8")
     print(json.dumps(stats, indent=2))
     return 0
 
