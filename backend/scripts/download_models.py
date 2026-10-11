@@ -140,14 +140,19 @@ def plan_jobs(classes: Iterable[type[Detector]], root: Path) -> tuple[list[Downl
     root = root.resolve()
     for cls in classes:
         for spec in cls.weights():
+            repo_id = resolve_repo_id(spec)
+            if not repo_id:
+                # Legacy bundles live only in a private mirror named by repo_id_env.
+                logger.info("skipped   %s: no repo id (set %s to fetch it)", cls.info.name, spec.repo_id_env or "a repo id")
+                continue
             target = (root / spec.local_subdir).resolve()
-            if target == root or root not in target.parents:
-                errors.append(
-                    f"{cls.info.name}: local_subdir {spec.local_subdir!r} must be a sub-directory of the model dir"
-                )
+            # A mirror bundle may mirror the model dir's own layout (local_subdir "." or ""),
+            # so the root itself is allowed; anything outside it is not.
+            if target != root and root not in target.parents:
+                errors.append(f"{cls.info.name}: local_subdir {spec.local_subdir!r} must be inside the model dir")
                 continue
             job = DownloadJob(
-                repo_id=resolve_repo_id(spec),
+                repo_id=repo_id,
                 repo_type=spec.repo_type,
                 revision=spec.revision,
                 allow_patterns=tuple(spec.allow_patterns) if spec.allow_patterns is not None else None,
