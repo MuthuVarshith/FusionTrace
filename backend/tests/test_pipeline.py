@@ -75,12 +75,13 @@ def test_image_routes_to_image_detector(tmp_path: Path) -> None:
 
 
 def test_no_signal_when_only_detector_fails_or_is_disabled(tmp_path: Path) -> None:
-    with registry.override(MediaKind.AUDIO, StubDetector.for_kind(MediaKind.AUDIO, error=InferenceError("boom"))):
-        with pytest.raises(pipeline.NoSignalError):
-            pipeline.analyze("audio", SAMPLE_AUDIO, tmp_path)
-    with registry.override(MediaKind.IMAGE, None):
-        with pytest.raises(pipeline.NoSignalError):
-            pipeline.analyze("image", SAMPLE_IMAGE, tmp_path)
+    with (
+        registry.override(MediaKind.AUDIO, StubDetector.for_kind(MediaKind.AUDIO, error=InferenceError("boom"))),
+        pytest.raises(pipeline.NoSignalError),
+    ):
+        pipeline.analyze("audio", SAMPLE_AUDIO, tmp_path)
+    with registry.override(MediaKind.IMAGE, None), pytest.raises(pipeline.NoSignalError):
+        pipeline.analyze("image", SAMPLE_IMAGE, tmp_path)
     with pytest.raises(ValueError):
         pipeline.analyze("document", SAMPLE_IMAGE, tmp_path)
 
@@ -138,9 +139,9 @@ def test_video_budget_exhausted_reports_time_limit(video_with_audio: Path, tmp_p
         registry.override(MediaKind.IMAGE, StubDetector.for_kind(MediaKind.IMAGE)),
         registry.override(MediaKind.AUDIO, StubDetector.for_kind(MediaKind.AUDIO)),
         registry.override(MediaKind.VIDEO, StubDetector.for_kind(MediaKind.VIDEO)),
+        pytest.raises(pipeline.NoSignalError) as caught,
     ):
-        with pytest.raises(pipeline.NoSignalError) as caught:
-            pipeline.analyze("video", video_with_audio, tmp_path, deadline=time.monotonic() - 1)
+        pipeline.analyze("video", video_with_audio, tmp_path, deadline=time.monotonic() - 1)
     assert pipeline.TIME_LIMIT_REASON in str(caught.value)
 
 

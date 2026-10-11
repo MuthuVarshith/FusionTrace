@@ -30,7 +30,14 @@ if str(PROJECT_DIR) not in sys.path:
 os.environ.setdefault("FUSIONTRACE_DEVICE", "cpu")
 
 from mlops import onnx_tools  # noqa: E402
-from mlops.selection import SelectionError, detector_spec, parse_options, require_exportable, resolve_detector, resolve_sample  # noqa: E402
+from mlops.selection import (  # noqa: E402
+    SelectionError,
+    detector_spec,
+    parse_options,
+    require_exportable,
+    resolve_detector,
+    resolve_sample,
+)
 
 VARIANTS = ("torch", "onnx-fp32", "onnx-int8", "onnx-int8-static")
 MARKER = "BENCHMARK_RESULT "

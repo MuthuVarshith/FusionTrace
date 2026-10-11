@@ -12,7 +12,13 @@ BACKEND = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(BACKEND))
 sys.path.insert(0, str(BACKEND / "scripts"))
 
-from app.detectors.base import AnalysisContext, DetectorInfo, DetectorResult, MediaKind, UnsupportedInputError  # noqa: E402
+from app.detectors.base import (  # noqa: E402
+    AnalysisContext,
+    DetectorInfo,
+    DetectorResult,
+    MediaKind,
+    UnsupportedInputError,
+)
 from app.detectors.testing import StubDetector, TinyTorchDetector  # noqa: E402
 from mlops import metrics  # noqa: E402
 from mlops.selection import SelectionError, require_exportable  # noqa: E402

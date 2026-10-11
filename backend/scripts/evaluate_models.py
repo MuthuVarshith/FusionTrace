@@ -30,10 +30,10 @@ PROJECT_DIR = Path(__file__).resolve().parents[1]
 if str(PROJECT_DIR) not in sys.path:
     sys.path.insert(0, str(PROJECT_DIR))
 
-from app.config import BASE_DIR  # noqa: E402
-from app.detectors.base import AnalysisContext, Detector, DetectorError, MediaKind  # noqa: E402
-from mlops import metrics, onnx_tools  # noqa: E402
-from mlops.selection import SelectionError, labelled_files, parse_options, resolve_detector  # noqa: E402
+from app.config import BASE_DIR
+from app.detectors.base import AnalysisContext, Detector, DetectorError, MediaKind
+from mlops import metrics, onnx_tools
+from mlops.selection import SelectionError, labelled_files, parse_options, resolve_detector
 
 WARNING = "This report is only valid for the supplied dataset; do not use it as a general accuracy claim."
 REVIEW_CONFIDENCE = 0.9

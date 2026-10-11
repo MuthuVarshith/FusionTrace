@@ -99,7 +99,7 @@ def register_onnx_model(
     client = _client(uri)
     try:
         client.get_registered_model(model_name)
-    except Exception:  # noqa: BLE001  # RESOURCE_DOES_NOT_EXIST; the exception type differs across stores
+    except Exception:  # RESOURCE_DOES_NOT_EXIST; the exception type differs across stores
         detector = metadata.get("detector") or {}
         client.create_registered_model(model_name, tags={"fusiontrace.kind": str(detector.get("kind")), "fusiontrace.detector": str(detector.get("name"))},
                                        description=f"ONNX exports of the FusionTrace {detector.get('display_name', detector.get('name'))} detector.")

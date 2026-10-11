@@ -110,7 +110,7 @@ def test_default_concurrent_calls_agree(default_detector: Detector, tmp_path: Pa
                 default_detector.explain(paths[1], tmp_path / f"cam{i}.jpg", ctx)
             else:
                 got[i] = default_detector.analyze(paths[i % 2], ctx).risk
-        except BaseException as exc:  # noqa: BLE001 - surfaced by the assert below
+        except BaseException as exc:
             errors.append(exc)
 
     threads = [threading.Thread(target=run, args=(i,)) for i in range(6)]

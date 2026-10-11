@@ -15,9 +15,11 @@ model_dir: models
 detectors:
   image:
     enabled: true
-    model: default
+    model: default          # commfor-vit-s384; see docs/model-choice-image.md
     weight: 0.9
-    options: {}
+    options:
+      threshold: 0.5
+      # normalization: imagenet  # efficientnetv2-legacy only: imagenet (matches training) | half (v1 inference)
   audio:
     enabled: true
     model: default

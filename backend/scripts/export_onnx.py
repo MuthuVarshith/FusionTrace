@@ -34,7 +34,14 @@ if str(PROJECT_DIR) not in sys.path:
 os.environ.setdefault("FUSIONTRACE_DEVICE", "cpu")  # export and parity run on CPU
 
 from mlops import onnx_tools  # noqa: E402
-from mlops.selection import SelectionError, detector_spec, parse_options, require_exportable, resolve_detector, resolve_sample  # noqa: E402
+from mlops.selection import (  # noqa: E402
+    SelectionError,
+    detector_spec,
+    parse_options,
+    require_exportable,
+    resolve_detector,
+    resolve_sample,
+)
 
 logger = logging.getLogger("fusiontrace.export")
 MIN_OPSET = 17
@@ -85,7 +92,7 @@ def _check_dynamic_batch(path: Path, inputs: tuple[Any, ...]) -> str | None:
         outputs = onnx_tools.ort_run(session, doubled)
         if any(output.ndim == 0 or output.shape[0] != 2 for output in outputs):
             return f"batch-2 run returned shapes {[tuple(output.shape) for output in outputs]}"
-    except Exception as exc:  # noqa: BLE001  # onnxruntime raises its own exception types
+    except Exception as exc:  # onnxruntime raises its own exception types
         return f"{type(exc).__name__}: {exc}"
     return None
 

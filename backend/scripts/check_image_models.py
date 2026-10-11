@@ -104,8 +104,8 @@ def labelled_sets(data_dir: Path) -> dict[str, list[tuple[str, int]]]:
 
 def auc(scores: list[float], labels: list[int]) -> float | None:
     """Mann-Whitney AUC with tie handling; None when a class is missing."""
-    pos = [s for s, y in zip(scores, labels) if y == 1]
-    neg = [s for s, y in zip(scores, labels) if y == 0]
+    pos = [s for s, y in zip(scores, labels, strict=True) if y == 1]
+    neg = [s for s, y in zip(scores, labels, strict=True) if y == 0]
     if not pos or not neg:
         return None
     wins = sum((p > n) + 0.5 * (p == n) for p in pos for n in neg)
@@ -113,8 +113,8 @@ def auc(scores: list[float], labels: list[int]) -> float | None:
 
 
 def metrics(scores: list[float], labels: list[int], threshold: float) -> dict[str, Any]:
-    fake = [s for s, y in zip(scores, labels) if y == 1]
-    real = [s for s, y in zip(scores, labels) if y == 0]
+    fake = [s for s, y in zip(scores, labels, strict=True) if y == 1]
+    real = [s for s, y in zip(scores, labels, strict=True) if y == 0]
     return {
         "n_fake": len(fake),
         "n_real": len(real),
@@ -160,7 +160,7 @@ def worker(name: str, data_dir: Path, out_path: Path) -> None:
         elapsed = time.perf_counter() - start
         result["sets"][set_name] = {**metrics(scores, labels, result["threshold"]), "errors": errors,
                                     "seconds_per_image": round(elapsed / max(1, len(items)), 3),
-                                    "scores": [[Path(p).name, round(s, 4), y] for (p, _), s, y in zip(items, scores, labels)]}
+                                    "scores": [[Path(p).name, round(s, 4), y] for (p, _), s, y in zip(items, scores, labels, strict=True)]}
     out_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
 
 
@@ -207,7 +207,7 @@ def main() -> None:
             print(f"| {item['model']} | {set_name} | {m['n_fake']}/{m['n_real']} | {_fmt(m['fake_recall'])} | "
                   f"{_fmt(m['real_recall'])} | {_fmt(m['auc'])} | {m['seconds_per_image']} |")
     (results_dir / "summary.json").write_text(
-        json.dumps([{k: v for k, v in item.items()} for item in summary], indent=2), encoding="utf-8")
+        json.dumps([dict(item) for item in summary], indent=2), encoding="utf-8")
 
 
 if __name__ == "__main__":

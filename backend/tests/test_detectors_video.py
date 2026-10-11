@@ -138,7 +138,7 @@ def test_plan_clips_is_even_and_capped() -> None:
     plan = sampling.plan_clips(info, max_clips=4, frames_per_clip=8)
     starts = [clip.start_seconds for clip in plan]
     assert len(plan) == 4 and starts == sorted(starts)
-    assert 0 < starts[0] and starts[-1] + 8 / 25 < 60
+    assert starts[0] > 0 and starts[-1] + 8 / 25 < 60
     short = sampling.VideoProbe(duration=0.2, fps=25.0, width=64, height=64, frame_count=5)
     assert [(c.start_seconds, c.frames) for c in sampling.plan_clips(short, 4, 8)] == [(0.0, 8)]
     assert all(clip.frames == 3 for clip in sampling.plan_clips(info, 2, 1))
@@ -212,7 +212,7 @@ def test_concurrent_analyze_on_one_instance(clips: dict[str, Path], tmp_path: Pa
     def run() -> None:
         try:
             results.append(detector.analyze(clips["smooth"], AnalysisContext(work_dir=tmp_path)).risk)
-        except BaseException as exc:  # noqa: BLE001 - surfaced by the assertion below
+        except BaseException as exc:
             errors.append(exc)
 
     with registry.override(MediaKind.IMAGE, None):

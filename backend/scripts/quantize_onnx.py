@@ -39,7 +39,14 @@ os.environ.setdefault("FUSIONTRACE_DEVICE", "cpu")
 
 from app.detectors.base import Detector, DetectorError  # noqa: E402
 from mlops import onnx_tools  # noqa: E402
-from mlops.selection import SelectionError, media_files, parse_options, require_exportable, resolve_detector, resolve_sample  # noqa: E402
+from mlops.selection import (  # noqa: E402
+    SelectionError,
+    media_files,
+    parse_options,
+    require_exportable,
+    resolve_detector,
+    resolve_sample,
+)
 
 logger = logging.getLogger("fusiontrace.quantize")
 QUANT_OPS = {
@@ -73,7 +80,7 @@ def _preprocess(source: Path, work_dir: Path, external: bool) -> tuple[Path, str
     try:
         quant_pre_process(str(source), str(target), save_as_external_data=external, all_tensors_to_one_file=True)
         return target, "applied"
-    except Exception as exc:  # noqa: BLE001  # symbolic shape inference does not support every graph
+    except Exception as exc:  # symbolic shape inference does not support every graph
         logger.warning("Pre-processing skipped: %s", exc)
         return source, f"skipped ({type(exc).__name__}: {exc})"
 
@@ -81,7 +88,7 @@ def _preprocess(source: Path, work_dir: Path, external: bool) -> tuple[Path, str
 def _runs(path: Path, inputs: tuple[Any, ...]) -> str | None:
     try:
         onnx_tools.ort_run(onnx_tools.ort_session(path), inputs)
-    except Exception as exc:  # noqa: BLE001  # report any onnxruntime failure as "does not run"
+    except Exception as exc:  # report any onnxruntime failure as "does not run"
         return f"{type(exc).__name__}: {str(exc).splitlines()[0][:300]}"
     return None
 
@@ -101,7 +108,7 @@ def quantize_dynamic_model(source: Path, target: Path, inputs: tuple[Any, ...], 
                 reduce_range=reduce_range, weight_type=QuantType.QInt8, use_external_data_format=external,
             )
             problem = _runs(target, inputs)
-        except Exception as exc:  # noqa: BLE001  # try the next configuration
+        except Exception as exc:  # try the next configuration
             problem = f"{type(exc).__name__}: {exc}"
         attempts.append({**config, "error": problem})
         if problem is None:
@@ -136,7 +143,13 @@ class _CalibrationReader:
 def quantize_static_model(
     source: Path, target: Path, detector: Detector, files: list[Path], *, per_channel: bool, reduce_range: bool, external: bool
 ) -> dict[str, Any]:
-    from onnxruntime.quantization import CalibrationDataReader, CalibrationMethod, QuantFormat, QuantType, quantize_static
+    from onnxruntime.quantization import (
+        CalibrationDataReader,
+        CalibrationMethod,
+        QuantFormat,
+        QuantType,
+        quantize_static,
+    )
 
     if not files:
         raise SelectionError("static quantisation needs --calibration-dir with at least one file of the detector's media kind")

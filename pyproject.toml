@@ -37,10 +37,6 @@ dependencies = [
     "huggingface-hub==0.34.3",
     # Optional AI summary (only used when GEMINI_API_KEY is set)
     "google-genai==2.23.0",
-    # Removal candidates: kept until the v2 audio/video work confirms they are unused.
-    "pydub==0.25.1",
-    "audioop-lts==0.2.1; python_version >= '3.13'",  # pydub needs audioop, removed from the stdlib in 3.13
-    "imageio-ffmpeg==0.6.0",
 ]
 
 [project.optional-dependencies]
@@ -54,6 +50,7 @@ mlops = [
     "onnx==1.19.1",
     "onnxruntime==1.30.0",
     "mlflow-skinny==3.17.0",
+    "psutil==7.0.0",  # peak-RSS measurement in benchmark_models.py
 ]
 
 [tool.uv]

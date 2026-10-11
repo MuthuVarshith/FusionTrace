@@ -133,6 +133,6 @@ def generate_summary(
         if summary:
             logger.info("AI summary generated with %s (%d chars).", settings.GEMINI_MODEL, len(summary))
         return summary
-    except Exception as exc:  # noqa: BLE001 - any SDK/network failure just means no summary
+    except Exception as exc:
         logger.warning("AI summary generation failed (%s): %s", settings.GEMINI_MODEL, exc)
         return None

@@ -37,3 +37,9 @@ mlartifacts/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Local caches: downloaded weights, MLflow store, evaluation data
+.models/
+.mlruns/
+.data/
+.claude/

@@ -17,8 +17,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app.detectors import registry  # noqa: E402
-from app.detectors.base import AnalysisContext, DetectorError, MediaKind  # noqa: E402
+from app.detectors import registry
+from app.detectors.base import AnalysisContext, DetectorError, MediaKind
 
 VIDEO_SUFFIXES = {".mp4", ".mov", ".webm", ".avi", ".mkv"}
 

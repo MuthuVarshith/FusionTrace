@@ -81,7 +81,7 @@ class ChunkedAudioDetector(Detector):
             risks = self._score_batch([segment for _, _, segment in pending], window)
             if len(risks) != len(pending):
                 raise RuntimeError(f"model returned {len(risks)} scores for {len(pending)} windows")
-            scored.extend((start, end, float(risk)) for (start, end, _), risk in zip(pending, risks))
+            scored.extend((start, end, float(risk)) for (start, end, _), risk in zip(pending, risks, strict=True))
             pending.clear()
 
         for start, end in spans:

@@ -126,7 +126,7 @@ def resolve_detector(kind: str | MediaKind | None, name: str | None = None, opti
 def _is_configured(kind: MediaKind, name: str) -> bool:
     try:
         return registry.settings(kind).model == name
-    except Exception:  # noqa: BLE001  # an empty or broken package must not block explicit selection
+    except Exception:  # an empty or broken package must not block explicit selection
         return False
 
 
