@@ -22,14 +22,29 @@ detectors:
     enabled: true
     model: default
     weight: 0.9
-    options: {}
+    options:
+      window_seconds: 4.0     # legacy model was trained on 4 s clips
+      hop_seconds: 2.0
+      max_windows: 60         # evenly spaced across the clip when exceeded
+      aggregate: top_k_mean   # mean | max | top_k_mean
+      top_k: 3
+      threshold: 0.5
+      silence_dbfs: -60       # windows quieter than this are skipped
+      batch_size: 1
   video:
-    # Temporal signal (between-frame consistency). New in v2; weight is a starting
-    # point, not a calibrated value.
+    # Temporal signal (between-frame consistency). The default is an uncalibrated
+    # heuristic that did not separate real from fake in its quick check (AUC 0.50,
+    # n=10+10), so it carries a low weight until it is calibrated.
     enabled: true
     model: default
-    weight: 0.7
-    options: {}
+    weight: 0.3
+    options:
+      max_clips: 4
+      frames_per_clip: 8
+      max_seconds: 120
+      score_jitter: true
+      score_frames_per_clip: 4
+      threshold: 0.5
 
 pipeline:
   video:
@@ -37,3 +52,4 @@ pipeline:
     max_frames: 12
     frame_weight: 0.8   # image detector on sampled frames (unchanged from v1)
     audio_weight: 0.9   # audio detector on the soundtrack (unchanged from v1)
+    max_seconds: 300    # total processing budget for one video scan
