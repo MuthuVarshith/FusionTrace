@@ -100,7 +100,20 @@ ignore = [
     "RUF001",  # ambiguous unicode in strings (box-drawing and typographic characters are intentional)
     "RUF002",
     "RUF003",
+    "B008",    # FastAPI dependency idiom: `file: UploadFile = File(...)`
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# Pre-v2 files owned by other workstreams, ignored as found at ef4023b so CI
+# passes now. Remove each entry once its owner has cleaned the file.
+"backend/app/detectors/base.py" = ["UP042"]  # frozen contract: `class MediaKind(str, Enum)`
+"backend/app/service.py" = ["I001", "SIM117", "UP017", "W291", "W293"]
+"backend/app/main.py" = ["B904", "C416", "F401", "I001", "UP045", "W293"]
+"backend/app/config.py" = ["I001", "SIM105", "W293"]
+"backend/app/audio_detection.py" = ["F401", "I001", "RUF010", "SIM115", "W293"]
+"backend/app/image_detection.py" = ["I001"]
+"backend/scripts/evaluate_models.py" = ["E402", "I001"]
+"backend/tests/test_service.py" = ["F401", "I001", "SIM117", "W293"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app", "mlops"]
