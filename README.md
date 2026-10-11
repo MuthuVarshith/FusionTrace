@@ -2,400 +2,297 @@
 
 # 🔍 FusionTrace
 
-### Enterprise Media Authenticity Assessment
+### Multimodal Media Authenticity Assessment
 
 *Investigate media authenticity with evidence — not just a score.*
 
-[![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org/)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.143-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![PyTorch](https://img.shields.io/badge/PyTorch-2.7-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white)](https://pytorch.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-22C55E?style=for-the-badge)](LICENSE)
-[![Version](https://img.shields.io/badge/Version-1.0.0-6366F1?style=for-the-badge)]()
+[![Version](https://img.shields.io/badge/Version-2.0.0-6366F1?style=for-the-badge)]()
 
 [![Watch Demo](https://img.shields.io/badge/▶%20Watch%20Demo-GIF%20Walkthrough-FF6B6B?style=flat-square)](resources/images/FusionTrace_Demo.gif)
 [![Sample Report](https://img.shields.io/badge/📄%20Sample%20Report-PDF-4A90E2?style=flat-square)](resources/docs/1.pdf)
-[![Star on GitHub](https://img.shields.io/github/stars/MuthuVarshith/FusionTrace?style=flat-square&logo=github)](https://github.com/MuthuVarshith/FusionTrace)
 
 ---
 
-<img src="resources/images/FusionTrace_Demo.gif" alt="FusionTrace Full Demo" width="100%">
+<img src="resources/images/FusionTrace_Demo.gif" alt="FusionTrace demo (v1 UI)" width="100%">
 
 </div>
 
+> **What FusionTrace is:** a local tool that runs several independent detectors over an
+> image, audio clip or video and fuses their outputs into a weighted **risk signal** with the
+> evidence behind it. **What it is not:** proof that media is real or fake. A low score never
+> verifies authenticity, and every detector here has documented blind spots (see
+> [Known limitations](#️-known-limitations)).
+
 ---
 
-## 🚨 The Problem
+## 💡 Design
 
-The rapid advancement of generative AI has made it effortless to produce hyper-realistic synthetic media — deepfake videos, AI-cloned voices, and generated imagery. This is no longer a theoretical risk:
+1. **Evidence fusion, not a single verdict.** Every scan produces a list of signals, each with
+   the model that produced it, its risk, its fusion weight and its status (`ok`, `disabled`,
+   `error`, `skipped`). The final score is their weighted mean, and the report shows every input.
+2. **Local inference.** All detectors run on your hardware. Media files never leave the
+   machine. The only optional network call is the AI summary (below), which sends detector
+   outputs only, and only when you tick the box for that scan.
+3. **Swappable models.** Every detector sits behind one interface
+   ([`backend/app/detectors/base.py`](backend/app/detectors/base.py)) and is chosen by
+   config. Any signal can be switched off, and its model name appears in the UI, report and PDF.
+4. **Explainability.** Image scans get an attention heatmap from the image model. Audio
+   scans report per-window scores across the whole clip. Video scans report per-frame scores
+   and a separate temporal signal.
 
-- **Financial fraud**: Synthetic CEO voice calls have been used to authorize wire transfers worth millions.
-- **Legal evidence tampering**: AI-generated images and audio are being presented in disputes.
-- **Disinformation at scale**: Fake media spreads faster than corrections, eroding public trust.
+---
 
-Existing tools fail in one or more of three critical ways:
+## 🧭 What runs for each upload
 
-| Problem | Common Tool Behavior | FusionTrace Approach |
+| Upload | Signals (fusion weight) | Default model |
 |---|---|---|
-| **Privacy** | Upload your file to a third-party cloud server | 100% local ML inference — your file never leaves your machine |
-| **Explainability** | Return a single percentage score with no reasoning | Multi-signal evidence report + GradCAM heatmap + AI forensic summary |
-| **Coverage** | Handle only one media type (images *or* audio) | Unified pipeline for images, audio, and video |
+| **Image** | Image model (0.9) | `commfor-vit-s384`: Community Forensics ViT-S/16-384 (MIT, 87 MB) |
+| | File inspection: SHA-256, MIME, size (0.1, always risk 0) | — |
+| | EXIF / metadata (reported, not scored) | — |
+| **Audio** | Synthetic-voice model on sliding 4 s windows over the **whole clip** (0.9) | `wav2vec2-legacy`: FusionTrace's Wav2Vec2-base |
+| | File inspection (0.1) | — |
+| **Video** | Image model on frames sampled every 5 s, up to 12 (0.8) | `commfor-vit-s384` |
+| | Audio model on the extracted soundtrack (0.9) | `wav2vec2-legacy` |
+| | **Temporal consistency across frames (0.3)** | `frame-consistency-heuristic`: an **uncalibrated heuristic**, not a learned model |
+| | File inspection (0.1) | — |
+
+Other registered options, selectable by config:
+
+- **Image:** `gend-clip-l14` (CLIP ViT-L/14, UnivFD-style), `siglip-deepfake-v1`, and `efficientnetv2-legacy` (the v1 model).
+- **Audio:** `wav2vec2-xlsr-garystafford`, `wav2vec2-base-melodymachine`.
+
+How they compare: [docs/model-choice.md](docs/model-choice.md).
+
+**Fusion.** `risk_score = Σ(risk × weight) / Σ(weight)` over the signals that ran, rated
+`high` at ≥ 70, `medium` at ≥ 40, `low` otherwise. The file-inspection signal always
+contributes risk 0 at weight 0.1, so scores top out at about 90. If no detector produces a
+signal, the scan fails rather than reporting "low".
+
+**Why the temporal weight is low.** No permissively licensed, CPU-friendly learned temporal
+video model passed selection (the best one inherits a non-commercial licence). The fallback
+measures flicker and score jitter across consecutive frames. On a 10 real + 10 fake public
+sample it did **not** separate the classes (AUC 0.50), so it carries weight 0.3 until it is
+calibrated.
 
 ---
 
-## 💡 The FusionTrace Philosophy
+## 📊 Quick-check results (not benchmarks)
 
-FusionTrace was built around three non-negotiable design decisions:
+Small checks run once during the v2 upgrade, on CPU, threshold 0.5. They show the models
+behave plausibly; they are not accuracy claims.
 
-### 1. Evidence Fusion — A Jury, Not a Single Judge
-Every scan runs **multiple independent detectors** in parallel: file integrity inspection, EXIF metadata analysis, a deep learning image model, and a voice synthesis model. The final verdict is a **weighted risk score** fused from all signals. A single model being wrong doesn't doom the result — the other detectors act as a check.
+**Image**: public out-of-distribution sample, 90 real (FairFace) + 90 fake (Stable Diffusion faces):
 
-### 2. Zero-Upload Privacy
-The deep learning models (EfficientNetV2 and Wav2Vec2) run entirely on your hardware. Your media files are never transmitted anywhere. The *only* external network call is an optional, tiny JSON payload of numerical scores sent to the Gemini API to generate the text summary. Turn off the `GEMINI_API_KEY` and the entire system runs 100% offline.
+| Model | Fake recall | Real recall | AUC |
+|---|---|---|---|
+| `commfor-vit-s384` (default) | 0.989 | 0.989 | 1.000 |
+| `gend-clip-l14` | 0.133 | 0.956 | 0.700 |
+| `siglip-deepfake-v1` | 0.100 | 0.467 | 0.155 |
+| `efficientnetv2-legacy` (v1) | 0.011 | 1.000 | 0.821 |
 
-### 3. Explainability Over Accuracy Theater
-A black-box "89% fake" score is useless in a professional context. FusionTrace generates:
-- **GradCAM heatmaps**: A pixel-level overlay showing *exactly which regions* of an image triggered the manipulation flag.
-- **AI Forensic Summary**: A hedged, plain-language narrative written by an LLM — *"signals suggest..."* not *"this is fake"*.
-- **Human-in-the-Loop**: Analysts can log `Confirmed Real`, `Confirmed Fake`, or `Needs Review` — building an auditable feedback trail.
+The v1 model labels almost every out-of-distribution fake as real, which reproduces the
+generalization failure that motivated v2. The public fakes are diffusion-generated faces only:
+**face swaps were not tested.**
 
----
+**Audio**: In-the-Wild sample, 50 real + 50 fake:
 
-## 📸 Screenshots
+| Model | Real recall | Fake recall | AUC |
+|---|---|---|---|
+| `wav2vec2-legacy` (default) | 1.00 | 0.74 | 0.916 |
+| `wav2vec2-xlsr-garystafford` | 0.90 | 0.44 | 0.682 |
 
-<table>
-  <tr>
-    <td align="center"><strong>Landing Page</strong></td>
-    <td align="center"><strong>How It Works</strong></td>
-  </tr>
-  <tr>
-    <td><img src="resources/images/1.png" alt="Landing Page" width="100%"></td>
-    <td><img src="resources/images/3.png" alt="How It Works" width="100%"></td>
-  </tr>
-  <tr>
-    <td align="center"><strong>High Risk — Audio Analysis Result</strong></td>
-    <td align="center"><strong>High Risk — Image Result + Human Review</strong></td>
-  </tr>
-  <tr>
-    <td><img src="resources/images/8.png" alt="High Risk Audio" width="100%"></td>
-    <td><img src="resources/images/9.png" alt="High Risk Image + Feedback" width="100%"></td>
-  </tr>
-  <tr>
-    <td align="center"><strong>Low Risk — Image Result</strong></td>
-    <td align="center"><strong>Scan History Dashboard</strong></td>
-  </tr>
-  <tr>
-    <td><img src="resources/images/10.png" alt="Low Risk Image" width="100%"></td>
-    <td><img src="resources/images/6.png" alt="Scan History" width="100%"></td>
-  </tr>
-</table>
+Full tables, datasets, revisions and the third audio candidate:
+[docs/model-choice.md](docs/model-choice.md).
 
 ---
 
-## ✨ Feature Matrix
+## 💻 Getting started
 
-| Feature | Description | Powered By |
-|---|---|---|
-| **Image Deepfake Detection** | Detects synthetic or manipulated imagery using a fine-tuned vision model | EfficientNetV2-L (PyTorch/Timm) |
-| **Synthetic Voice Detection** | Identifies AI-generated or cloned speech from audio tracks | Wav2Vec2 (HuggingFace Transformers) |
-| **Video Multimodal Analysis** | Samples frames at 1fps/5s (up to 12) + strips and analyzes the audio track separately | FFmpeg + both ML models |
-| **GradCAM Heatmap** | Pixel-level attention overlay — shows *where* the model focused | Pure PyTorch hooks + NumPy (no OpenCV) |
-| **Evidence Fusion Engine** | Weighted multi-signal risk score with `low` / `medium` / `high` rating | Custom fusion algorithm |
-| **AI Forensic Summary** | 2–3 sentence hedged plain-language narrative from detector signals | Google Gemini Flash (optional) |
-| **A4 PDF Report Export** | One-page forensic report with scan metadata, risk scores, and heatmap | Jinja2 PDF renderer |
-| **Human Audit Trail** | Reviewer labels + free-text notes persisted per scan | SQLite |
-| **Async Scan Pipeline** | File accepted in <1ms; ML inference runs as a background task; UI polls for result | FastAPI Background Tasks |
-| **Auto File Retention** | Uploads and artifacts auto-deleted after configurable window | Startup + pre-scan cleanup |
-| **Content Validation** | Files validated by content (PIL verify, soundfile, FFmpeg probe), not just extension | Server-side security |
+You need Python 3.11+, FFmpeg (with `ffprobe`) on `PATH`, and about 4 GB of free RAM for the
+default models.
 
----
-
-## 🗺️ Architecture
-
-```mermaid
-flowchart TD
-    A[User: Upload File] --> B[POST /api/scans]
-    B --> C{Content Validation}
-    C -- Invalid --> D[400 Error]
-    C -- Valid --> E[DB: status=queued]
-    E --> F[Background Task: process_scan]
-
-    F --> G{Media Type Router}
-
-    G -- image --> H1[File Inspection\nSHA-256 + MIME]
-    G -- image --> H2[EXIF Metadata]
-    G -- image --> H3[EfficientNetV2-L\nDeepfake Detection]
-
-    G -- audio --> I1[File Inspection]
-    G -- audio --> I2[Wav2Vec2\nSynthetic Voice]
-
-    G -- video --> J1[FFmpeg Frame Extraction\n1fps/5s • up to 12 frames]
-    G -- video --> J2[Per-frame EfficientNetV2\nScoring]
-    G -- video --> J3[FFmpeg Audio Strip\n→ Wav2Vec2 Analysis]
-
-    H1 & H2 & H3 --> K[Evidence Fusion\nWeighted Risk Score]
-    I1 & I2 --> K
-    J1 & J2 & J3 --> K
-
-    K --> L[DB: status=completed\nPhase 1 verdict ready]
-    L --> M[UI: Renders Verdict]
-
-    L --> N[Phase 2 Enrichments]
-    N --> O[GradCAM Heatmap\nimage only]
-    N --> P[Gemini AI Summary\noptional]
-    O & P --> Q[DB: patch report]
-
-    M --> R[Human Reviewer]
-    R --> S[POST /feedback\nconfirmed_real / confirmed_fake / needs_review]
-    S --> T[SQLite Audit Trail]
-```
-
----
-
-## 🧠 ML Models & Training
-
-### Image Model — EfficientNetV2-L
-
-| Property | Detail |
-|---|---|
-| **Architecture** | `tf_efficientnetv2_l` via Timm, custom classification head |
-| **Training Strategy** | Transfer learning — base frozen, last 30 layers unfrozen |
-| **Head** | `Linear(features → 512) → SiLU → BatchNorm → Dropout(0.3) → Linear(512 → 1)` |
-| **Output** | Sigmoid probability — ≥ 0.5 = Fake |
-| **Validation Accuracy** | **96%** on internal test set |
-| **GradCAM** | Hooked on `base_model.blocks[-1]`; pure PyTorch gradients — no OpenCV dependency |
-
-Training notebooks: [`/backend/notebook/image_detection/`](backend/notebook/image_detection/)
-
-### Audio Model — Wav2Vec2
-
-| Property | Detail |
-|---|---|
-| **Architecture** | `Wav2Vec2ForSequenceClassification` (HuggingFace) |
-| **Preprocessing** | Resample to 16kHz → mono → normalize → trim/pad to 4s |
-| **Input Formats** | WAV (soundfile), MP3/M4A (pydub + FFmpeg) |
-| **Output** | Softmax class probabilities — `Real` (0) or `Fake` (1) |
-| **Triage** | Confidence ≥ 90% on Fake → `high-priority` review flag |
-
-Training notebooks: [`/backend/notebook/audio_detection/`](backend/notebook/audio_detection/)
-
----
-
-## ⚡ Video Pipeline — Deep Dive
-
-Video analysis is uniquely challenging because it combines visual and acoustic signals across time. FusionTrace uses a purpose-built multimodal pipeline:
-
-```
-1. FFmpeg Frame Extraction
-   └─ Sample 1 frame every 5 seconds, up to 12 frames max
-   └─ Saves as individual JPEGs in a per-scan artifact directory
-
-2. Per-Frame Scoring
-   └─ Each JPEG frame is independently scored by EfficientNetV2-L
-   └─ Reports: average risk across all frames + peak frame timestamp
-
-3. Audio Track Extraction
-   └─ FFmpeg strips the audio to 16kHz mono WAV
-   └─ Wav2Vec2 analyzes for synthetic voice patterns
-
-4. Evidence Fusion
-   └─ Frame analysis (weight: 0.8) + Audio analysis (weight: 0.9) → final risk score
-```
-
-> **Honest limitation**: This pipeline detects per-frame manipulation and synthetic audio. Lip-sync inconsistency detection and full temporal consistency models are not yet implemented (see Roadmap).
-
----
-
-## 📄 Sample Forensic Reports
-
-View real exported A4 PDF reports generated by FusionTrace:
-
-| Report | Description |
-|---|---|
-| [📎 Report 1](resources/docs/1.pdf) | High-risk image scan with GradCAM analysis |
-| [📎 Report 2](resources/docs/2.pdf) | High-risk audio scan — synthetic voice detected |
-| [📎 Report 3](resources/docs/3.pdf) | Low-risk scan — no elevated signals |
-| [📎 Report 4](resources/docs/4.pdf) | Medium-risk scan — inconclusive result |
-| [📎 Report 5](resources/docs/5.pdf) | Video multimodal scan with frame + audio breakdown |
-
----
-
-## 💻 Getting Started
-
-FusionTrace requires **at least 2GB of free RAM** to load the ML models.
-
-### Option A — Local (Recommended for Development)
+### Local
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/MuthuVarshith/FusionTrace.git
-cd FusionTrace/backend
-
-# 2. Create and activate a virtual environment
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-
-# 3. Install dependencies
-pip install -r requirements.txt
-
-# 4. Configure environment
-cp .env.example .env
-# Edit .env and add your GEMINI_API_KEY (optional — scans work without it)
-
-# 5. Download model weights
-python scripts/download_models.py
-
-# 6. Run the server
-python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
-```
-
-Open [http://localhost:8000](http://localhost:8000) in your browser.
-
----
-
-### Option B — Docker Compose (One Command)
-
-```bash
-# 1. Clone and configure
 git clone https://github.com/MuthuVarshith/FusionTrace.git
 cd FusionTrace
-cp backend/.env.example backend/.env
+python -m venv .venv && source .venv/bin/activate      # Windows: .venv\Scripts\activate
+pip install -r requirements.txt                          # pinned, CPU-only torch
+cp backend/.env.example backend/.env                     # optional settings
 
-# 2. Start the application
-docker compose up --build
+cd backend
+python scripts/download_models.py                        # fetches weights for the enabled detectors
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-The app will be available at [http://localhost:8000](http://localhost:8000).
-Uploaded files and artifacts are persisted in `./backend/data` via a Docker volume.
+Open <http://localhost:8000>. `GET /health` lists each detector: enabled, model, weight, and
+whether its weights are available and loaded.
+
+> **Legacy weights.** The default audio model (`wav2vec2-legacy`) and the optional
+> `efficientnetv2-legacy` image model are FusionTrace's own weights. They are not on a public
+> Hub repo. `download_models.py` fetches them only when `HF_REPO_ID` names your mirror
+> (`HF_TOKEN` if it is private); otherwise put them under `backend/models/audio_model/` and
+> `backend/models/image_model/`. Without them, audio scans report the audio model as
+> unavailable.
+
+Run **one app process**. The scan queue and rate limiter live in memory, so extra
+uvicorn workers would each load every model and keep separate queues.
+
+### Docker Compose
+
+```bash
+cp backend/.env.example backend/.env
+docker compose up --build            # http://localhost:8000; PORT=9000 docker compose up to change it
+```
+
+The container fetches missing weights into the `models` volume at start-up (idempotent), then
+serves on `$PORT`. Weights are never baked into the image, so `HF_TOKEN` stays out of it.
+
+### Hugging Face Spaces (free CPU tier)
+
+Step-by-step guide: [docs/deploy-hf-spaces.md](docs/deploy-hf-spaces.md). It covers the Space
+card, `PORT=7860`, secrets, start-up downloads, and `FUSIONTRACE_VIDEO_ENABLED=false` when
+memory is tight.
 
 ---
 
-## ⚙️ Configuration Reference
+## ⚙️ Configuration
 
-All settings are controlled via environment variables. Create `backend/.env` from the provided example:
+Detectors are configured in [`backend/config.yaml`](backend/config.yaml). Each one can be
+overridden from the environment:
 
-| Variable | Default | Required | Description |
-|---|---|---|---|
-| `GEMINI_API_KEY` | `""` | No | Google Gemini API key for AI forensic summaries. Scans complete without it — `ai_summary` will be `null`. Get a free key at [aistudio.google.com](https://aistudio.google.com/app/apikey). |
-| `FUSIONTRACE_CORS_ORIGINS` | `http://localhost:8000` | Yes | Comma-separated list of allowed browser origins. |
-| `FUSIONTRACE_RETENTION_HOURS` | `24` | No | Hours before uploaded files and generated artifacts are automatically deleted. |
-| `FUSIONTRACE_MAX_UPLOAD_MB` | `200` | No | Maximum file size in MB for a single upload. |
-| `FUSIONTRACE_AUDIO_MODEL_PATH` | `models/audio_model` | No | Absolute path override for the Wav2Vec2 model directory. |
-| `FUSIONTRACE_IMAGE_MODEL_PATH` | `models/image_model/EfficientnetV2_model.pth` | No | Absolute path override for the EfficientNetV2 weights file. |
-| `FUSIONTRACE_DATA_DIR` | `data` | No | Absolute path override for the uploads and artifacts directory. |
+| Variable | Effect |
+|---|---|
+| `FUSIONTRACE_IMAGE_MODEL` / `_AUDIO_MODEL` / `_VIDEO_MODEL` | Registry key of the detector to use (e.g. `efficientnetv2-legacy`) |
+| `FUSIONTRACE_<KIND>_ENABLED` | `false` switches that signal off |
+| `FUSIONTRACE_<KIND>_WEIGHT` | Fusion weight |
+| `FUSIONTRACE_MODEL_DIR` | Where weights live (default `backend/models`) |
+| `FUSIONTRACE_DEVICE` | `auto`, `cpu` or `cuda` |
+| `FUSIONTRACE_API_KEYS` | Comma-separated keys. Unset means no auth (local use). When set, `/api/*` requires `X-API-Key` and every scan is visible only to the key that created it |
+| `FUSIONTRACE_UPLOAD_RATE_LIMIT`, `FUSIONTRACE_FEEDBACK_RATE_LIMIT` | Requests per window, per key (or per IP when auth is off); 429 when exceeded |
+| `FUSIONTRACE_MAX_CONCURRENT_SCANS` | Worker pool size (default 1) |
+| `FUSIONTRACE_MAX_UPLOAD_MB`, `_MAX_AUDIO_SECONDS`, `_MAX_VIDEO_SECONDS`, `_MAX_IMAGE_PIXELS` | Upload limits, checked with `ffprobe` / PIL before a scan is queued |
+| `FUSIONTRACE_RETENTION_HOURS` | Uploads and heatmaps older than this are deleted (scans in progress are skipped) |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | Enable the optional AI summary |
+
+[`backend/.env.example`](backend/.env.example) lists every variable the app reads, with defaults.
 
 ---
 
-## 🔌 REST API Reference
+## 🤖 Optional AI summary
 
-The FastAPI server exposes a clean REST API. Interactive docs are available at `http://localhost:8000/docs`.
+When `GEMINI_API_KEY` is set, the upload form offers an **off-by-default** checkbox. If you
+tick it, a 2–3 sentence hedged summary is generated from the detector outputs after the
+verdict is shown. Only detector labels, risks and model names are sent: never the media file,
+its hash, or its EXIF. Without a key the checkbox is disabled and everything else works.
+
+---
+
+## 🔌 REST API
+
+Interactive docs: `http://localhost:8000/docs`.
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `GET` | `/` | Serves the main HTML UI |
-| `GET` | `/health` | Health check — returns model load status and config |
-| `POST` | `/api/scans` | **Submit a scan.** Multipart form: `file` (UploadFile) + `generate_ai_summary` (bool). Returns `scan_id` immediately; processing is async. |
-| `GET` | `/api/scans/{scan_id}` | Poll for scan results. Check `status` field: `queued` → `processing` → `completed` / `failed`. |
-| `GET` | `/api/scans` | List recent scans (default: last 50). Returns summary rows with risk rating. |
-| `POST` | `/api/scans/{scan_id}/feedback` | Submit human reviewer feedback. Body: `{"label": "confirmed_real" \| "confirmed_fake" \| "needs_review", "notes": "..."}` |
-| `GET` | `/api/scans/{scan_id}/heatmap` | Fetch the GradCAM heatmap JPEG for an image scan (available after `heatmap_ready: true`). |
+| `GET` | `/health` | Detector status (model, enabled, weight, available, loaded) and whether summaries are available |
+| `POST` | `/api/scans` | Multipart: `file`, optional `generate_ai_summary=true`. Returns `202` with the scan id; the scan waits in the queue |
+| `GET` | `/api/scans/{id}` | Status `queued` → `processing` → `completed` / `failed`, plus the report |
+| `GET` | `/api/scans` | Recent scans (scoped to the caller's key when auth is on) |
+| `POST` | `/api/scans/{id}/feedback` | `{"label": "confirmed_real" \| "confirmed_fake" \| "needs_review", "notes": "..."}` |
+| `GET` | `/api/scans/{id}/heatmap` | Image explanation overlay once `report.heatmap_ready` is true |
 
-**Example — Submit a scan and poll for result:**
+Clients get generic error messages only. Full error details go to the server log.
+
+---
+
+## 🧪 Evaluation and MLOps
+
+- `backend/scripts/evaluate_models.py`: AUC, precision, recall, F1 and a confusion matrix per
+  detector on labelled `real/` and `fake/` folders (image, audio or video).
+- `backend/scripts/export_onnx.py`, `quantize_onnx.py`, `benchmark_models.py`: ONNX export
+  with a parity check, INT8 quantization, and CPU latency/memory/size comparisons.
+- Optional MLflow tracking and a local model registry.
+
+Commands: [docs/mlops.md](docs/mlops.md). Model-specific quick checks:
+`backend/scripts/check_{image,audio,video}_models.py`.
+
 ```bash
-# Submit
-SCAN=$(curl -s -X POST http://localhost:8000/api/scans \
-  -F "file=@/path/to/image.jpg" \
-  -F "generate_ai_summary=true")
-
-SCAN_ID=$(echo $SCAN | python -c "import sys,json; print(json.load(sys.stdin)['id'])")
-
-# Poll until completed
-curl http://localhost:8000/api/scans/$SCAN_ID
+uv sync --extra dev                  # or: pip install -r requirements.txt ruff pytest httpx
+FUSIONTRACE_WARMUP=0 pytest          # backend/tests; tests needing downloaded weights skip without them
+ruff check .
 ```
 
----
-
-## 🔒 Privacy & Security
-
-FusionTrace is designed with a privacy-first architecture:
-
-- **No cloud inference**: EfficientNetV2 and Wav2Vec2 run entirely on your own hardware.
-- **Content validation**: Every upload is validated by its actual file contents (PIL `image.verify()`, soundfile header check, FFmpeg probe) — not by trusting the user-controlled filename extension.
-- **SHA-256 digest**: Every file is hashed and included in the forensic report for tamper evidence.
-- **Configurable retention**: Uploaded files and generated artifacts are automatically purged after the configured window (default: 24 hours) on startup and before each new scan.
-- **CORS hardened**: Only explicitly configured origins are permitted to call the API.
-- **Gemini summary**: If used, only a small JSON object of numerical scores is sent to the API — never the media file itself.
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) checks the lock file, runs ruff
+and pytest, and builds the Docker image.
 
 ---
 
-## ⚠️ Known Limitations
+## 🔒 Privacy and security
 
-Being honest about what the tool can and can't do is part of responsible forensics:
+- Inference is local; media is never uploaded anywhere.
+- Uploads are validated by content (PIL `verify` plus a pixel cap for images; `ffprobe`
+  stream and duration checks for audio/video), not by file extension.
+- Optional API keys, with per-key scoping of scans and stored owner hashes (never the keys).
+- Rate limits on uploads and feedback; a bounded scan queue.
+- Per-scan working files are deleted when a scan finishes; uploads and heatmaps follow the
+  retention window.
+- The model download path prefers safetensors and never uses `trust_remote_code`.
+
+---
+
+## ⚠️ Known limitations
 
 | Limitation | Detail |
 |---|---|
-| **No lip-sync detection** | Video analysis scores individual frames. Temporal lip-sync and face-swap consistency checks are not yet implemented. |
-| **Audio clips capped at 4 seconds** | The Wav2Vec2 model was trained on 4-second clips. Longer audio is trimmed; very short clips may yield low-confidence results. |
-| **SQLite only** | The persistence layer uses SQLite. It is not suitable for concurrent multi-instance horizontal scaling. |
-| **No GPU on CPU-only hosts** | Inference runs on CPU if CUDA is not available. Expect 5–15s per scan on CPU-only hardware. |
-| **Not proof of authenticity** | A low risk score does not verify that media is authentic. The system flags signals, not truth. |
+| **Results are risk signals, not proof** | No detector here is calibrated for your data. Treat high scores as "review this", and low scores as "nothing flagged", not "authentic". |
+| **Image model tested on one kind of fake** | The default image model was checked on diffusion-generated faces. Face swaps and edited real photos were not tested. |
+| **Temporal video signal is a heuristic** | Uncalibrated, AUC 0.50 on its 10 + 10 check, weight 0.3. No lip-sync model. |
+| **Audio default is the v1 model** | It held up on In-the-Wild (AUC 0.916, n = 100). Its weights are private (see Getting started). |
+| **Single process** | The queue and rate limits are in memory, and SQLite is the only store, so this does not scale horizontally. |
+| **CPU speed** | Roughly 1.4 s per 4 s audio window; long videos are capped by a processing budget. |
 
 ---
 
-## 🗺️ Roadmap
-
-Planned enhancements for future versions:
-
-- [ ] **Temporal video models** — lip-sync consistency and face-swap detection across frames
-- [ ] **GradCAM for audio** — spectral attention visualization for voice scans
-- [ ] **Batch API** — scan multiple files in a single API call
-- [ ] **API key authentication** — multi-user access control
-- [ ] **PostgreSQL support** — production-grade persistence for multi-instance deployments
-- [ ] **Webhook callbacks** — push notification when a scan completes instead of polling
-
----
-
-## 📁 Project Structure
+## 📁 Project structure
 
 ```
 FusionTrace/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py              # FastAPI application, routes, lifespan
-│   │   ├── service.py           # Scan lifecycle, evidence fusion, persistence
-│   │   ├── image_detection.py   # EfficientNetV2 inference + GradCAM
-│   │   ├── audio_detection.py   # Wav2Vec2 inference + audio preprocessing
-│   │   ├── ai_summary.py        # Gemini forensic summary generation
-│   │   └── config.py            # Settings, paths, env var loading
-│   ├── notebook/
-│   │   ├── image_detection/     # EfficientNetV2 training notebooks
-│   │   └── audio_detection/     # Wav2Vec2 training notebooks
-│   ├── scripts/
-│   │   ├── download_models.py   # Model weight download utility
-│   │   └── evaluate_models.py   # Benchmark evaluation scripts
-│   ├── templates/               # Jinja2 HTML + static assets
-│   ├── models/                  # Model weights (not tracked in git)
-│   ├── data/                    # Uploads + artifacts (not tracked in git)
-│   └── requirements.txt
-├── resources/
-│   ├── images/                  # App screenshots and demo GIF
-│   └── docs/                    # Sample exported forensic PDFs
-├── Dockerfile                   # Production container
-├── docker-compose.yml           # Local Docker deployment
-└── README.md
+│   │   ├── main.py              # FastAPI routes, auth, rate limits
+│   │   ├── service.py           # Scan lifecycle, fusion, persistence, enrichments
+│   │   ├── pipeline.py          # Media kind → evidence signals via the registry
+│   │   ├── jobs.py              # Bounded in-process scan queue
+│   │   ├── validation.py        # ffprobe / PIL upload checks
+│   │   ├── detectors/
+│   │   │   ├── base.py          # The shared Detector interface
+│   │   │   ├── registry.py      # Config-driven selection
+│   │   │   ├── image/           # commfor, GenD CLIP, SigLIP, legacy EfficientNetV2
+│   │   │   ├── audio/           # Windowed Wav2Vec2 detectors
+│   │   │   └── video/           # Frame-consistency heuristic
+│   │   └── ai_summary.py        # Optional Gemini summary
+│   ├── mlops/                   # MLflow tracking + registry helpers
+│   ├── scripts/                 # download, evaluate, export/quantize/benchmark, quick checks
+│   ├── templates/               # UI (vanilla JS) and static assets
+│   └── tests/
+├── deploy/                      # Docker entrypoint, HF Spaces kit
+├── docs/                        # Model choice, upgrade notes, deploy, MLOps, LFS cleanup
+├── pyproject.toml / uv.lock     # Single pinned manifest
+├── requirements.txt             # Generated from uv.lock
+├── Dockerfile / docker-compose.yml
+└── .github/workflows/ci.yml
 ```
 
----
-
-## 📬 Contact & Support
-
-This project was built and is maintained by **Muthu Varshith**.
-
-If you are interested in discussing the architecture, contributing to the project, or exploring professional opportunities, reach out via the built-in **Contact** form in the application itself.
+What changed in v2 and why: [docs/upgrade-notes.md](docs/upgrade-notes.md).
 
 ---
 
 <div align="center">
-  <sub>FusionTrace — Evidence-based media authenticity. Built with 🧠 and Python.</sub>
+  <sub>FusionTrace — evidence-based media authenticity signals. Built by Muthu Varshith.</sub>
   <br>
-  <sub>© 2025 Muthu Varshith. Released under the <a href="LICENSE">MIT License</a>.</sub>
+  <sub>Released under the <a href="LICENSE">MIT License</a>. Third-party model weights keep their own licences (see docs/model-choice.md).</sub>
 </div>
