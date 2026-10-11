@@ -32,7 +32,14 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
-from ..base import AnalysisContext, Detector, DetectorError, DetectorResult, InferenceError, UnsupportedInputError
+from ..base import (
+    AnalysisContext,
+    Detector,
+    DetectorError,
+    DetectorResult,
+    InferenceError,
+    UnsupportedInputError,
+)
 
 if TYPE_CHECKING:
     import numpy as np

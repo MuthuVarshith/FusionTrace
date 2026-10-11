@@ -16,7 +16,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar
 
 from ..base import DetectorInfo, MediaKind, ModelUnavailableError, WeightsSpec
-from ._common import CLIP_MEAN, CLIP_STD, TorchImageDetector, softmax_prob, token_gradcam
+from ._common import (
+    CLIP_MEAN,
+    CLIP_STD,
+    TorchImageDetector,
+    softmax_prob,
+    token_gradcam,
+)
 
 if TYPE_CHECKING:
     import numpy as np

@@ -8,8 +8,8 @@ torch/timm. The layer names must stay exactly as trained: the state dict in
 from __future__ import annotations
 
 import torch
-import torch.nn as nn
 from timm import create_model
+from torch import nn
 
 
 class EfficientNetV2(nn.Module):

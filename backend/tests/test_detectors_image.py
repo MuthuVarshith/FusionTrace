@@ -8,9 +8,20 @@ from pathlib import Path
 import pytest
 
 from app.detectors import registry
-from app.detectors.base import AnalysisContext, Detector, MediaKind, ModelUnavailableError, UnsupportedInputError
+from app.detectors.base import (
+    AnalysisContext,
+    Detector,
+    MediaKind,
+    ModelUnavailableError,
+    UnsupportedInputError,
+)
 from app.detectors.image import DEFAULT, DETECTORS
-from app.detectors.image._common import binary_result, load_rgb, normalise_cam, save_overlay
+from app.detectors.image._common import (
+    binary_result,
+    load_rgb,
+    normalise_cam,
+    save_overlay,
+)
 
 TEST_DIR = Path(__file__).resolve().parents[1] / "test"
 
@@ -99,7 +110,7 @@ def test_default_concurrent_calls_agree(default_detector: Detector, tmp_path: Pa
                 default_detector.explain(paths[1], tmp_path / f"cam{i}.jpg", ctx)
             else:
                 got[i] = default_detector.analyze(paths[i % 2], ctx).risk
-        except BaseException as exc:  # pragma: no cover - surfaced below
+        except BaseException as exc:  # noqa: BLE001 - surfaced by the assert below
             errors.append(exc)
 
     threads = [threading.Thread(target=run, args=(i,)) for i in range(6)]

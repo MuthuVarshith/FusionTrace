@@ -19,7 +19,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from ..base import DetectorInfo, MediaKind, ModelUnavailableError, WeightsSpec
-from ._common import IMAGENET_MEAN, IMAGENET_STD, TorchImageDetector, conv_gradcam, sigmoid
+from ._common import (
+    IMAGENET_MEAN,
+    IMAGENET_STD,
+    TorchImageDetector,
+    conv_gradcam,
+    sigmoid,
+)
 
 if TYPE_CHECKING:
     import numpy as np

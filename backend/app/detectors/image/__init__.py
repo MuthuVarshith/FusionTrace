@@ -16,4 +16,4 @@ DETECTORS: dict[str, type[Detector]] = {
     cls.info.name: cls
     for cls in (CommunityForensicsDetector, GenDClipDetector, SiglipDeepfakeDetector, EfficientNetV2LegacyDetector)
 }
-DEFAULT: str | None = EfficientNetV2LegacyDetector.info.name
+DEFAULT: str | None = CommunityForensicsDetector.info.name
