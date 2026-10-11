@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import shutil
 import sys
 import time
@@ -174,12 +173,12 @@ def log_to_mlflow(args: argparse.Namespace, summary: dict, adapter_dir: Path) ->
 
     Never sets ``production``: promotion is a separate, deliberate step.
     """
-    os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
-    import mlflow
     from mlflow.tracking import MlflowClient
 
-    from mlops import model_registry
+    from mlops import model_registry, tracking
 
+    # Use the repo's file store, not MLflow's default database (which needs alembic and is not installed).
+    mlflow = tracking.import_mlflow()
     mlflow.set_experiment(model_registry.EXPERIMENT)
     with mlflow.start_run(run_name=f"lora-{summary['data_version'][:8]}") as active:
         mlflow.log_params({
