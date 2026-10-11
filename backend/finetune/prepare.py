@@ -46,6 +46,12 @@ REGRESSION_FAKE_PREFIX = "generated/"
 REGRESSION_FAKE_COUNT = 90
 REGRESSION_REAL_COUNT = 90
 
+# Every image is normalised the same way before use, so no class can be told apart by size,
+# aspect ratio or encoding. (Before this, FairFace reals were 224x224 JPEG and most face-swap
+# fakes 178x218 JPEG, and the regression fakes 512x728 PNG: a shortcut the model could learn.)
+NORMALISED_SIZE = 256
+NORMALISED_JPEG_QUALITY = 90
+
 
 @dataclass(frozen=True)
 class Sample:
@@ -87,6 +93,18 @@ def load_faceswap() -> list[Sample]:
         for row in table:
             samples.append(Sample(f"faceswap_{split}_{Path(row['filename']).stem}.jpg", 1, row["image"], f"faceswap-{split}"))
     return samples
+
+
+def normalise(payload: bytes) -> bytes:
+    """Centre square crop, resize to NORMALISED_SIZE, RGB, JPEG at NORMALISED_JPEG_QUALITY."""
+    with Image.open(io.BytesIO(payload)) as image:
+        image = image.convert("RGB")
+        side = min(image.size)
+        left, top = (image.width - side) // 2, (image.height - side) // 2
+        square = image.crop((left, top, left + side, top + side)).resize((NORMALISED_SIZE, NORMALISED_SIZE), Image.Resampling.LANCZOS)
+    out = io.BytesIO()
+    square.save(out, format="JPEG", quality=NORMALISED_JPEG_QUALITY)
+    return out.getvalue()
 
 
 def dhash(payload: bytes, size: int = 8) -> int:
@@ -140,7 +158,7 @@ def assign_splits(groups: list[int], fractions: tuple[float, float, float], seed
 
 def build(out: Path, reals: int, seed: int, dup_distance: int, fractions: tuple[float, float, float]) -> dict:
     out.mkdir(parents=True, exist_ok=True)
-    samples = load_fairface(reals, seed) + load_faceswap()
+    samples = [Sample(s.name, s.label, normalise(s.payload), s.source) for s in load_fairface(reals, seed) + load_faceswap()]
     hashes = [dhash(s.payload) for s in samples]
     groups = cluster(hashes, dup_distance)
     split_of = assign_splits(groups, fractions, seed)
@@ -159,6 +177,7 @@ def build(out: Path, reals: int, seed: int, dup_distance: int, fractions: tuple[
     data.write_manifest(rows, manifest)
 
     stats = {
+        "normalisation": {"size": NORMALISED_SIZE, "format": "JPEG", "jpeg_quality": NORMALISED_JPEG_QUALITY, "crop": "centre square"},
         "rows": {s: {"real": sum(1 for r in rows if r.split == s and r.label == 0), "fake": sum(1 for r in rows if r.split == s and r.label == 1)} for s in data.SPLITS},
         "groups": len(set(groups)),
         "near_duplicate_distance": dup_distance,
@@ -178,7 +197,7 @@ def load_regression_fakes() -> list[bytes]:
         f for f in HfApi().list_repo_files(REGRESSION_FAKE_REPO, repo_type="dataset", revision=REGRESSION_FAKE_REVISION)
         if f.startswith(REGRESSION_FAKE_PREFIX)
     )[:REGRESSION_FAKE_COUNT]
-    return [Path(hf_hub_download(REGRESSION_FAKE_REPO, f, repo_type="dataset", revision=REGRESSION_FAKE_REVISION, cache_dir=_cache())).read_bytes() for f in files]
+    return [normalise(Path(hf_hub_download(REGRESSION_FAKE_REPO, f, repo_type="dataset", revision=REGRESSION_FAKE_REVISION, cache_dir=_cache())).read_bytes()) for f in files]
 
 
 def build_eval(out: Path, seed: int) -> dict[str, int]:

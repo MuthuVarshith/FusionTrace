@@ -43,6 +43,17 @@ face-swap set from a different source is added, every face-swap result is report
 **Real images are FairFace; train, validation and test reals are disjoint images.** The build
 splits by group (see below), so each FairFace image is in exactly one split.
 
+### Normalisation (added after a shortcut was found)
+
+Before normalisation, the classes differed in size and encoding: FairFace reals were 224×224 JPEG,
+most face-swap fakes 178×218 JPEG, and the regression fakes 512×728 PNG. A model can separate
+classes by those properties alone, which would inflate AUC without detecting manipulation.
+
+`prepare.py` now normalises every image, real or fake, in training, validation, test and the
+regression set: centre square crop, resize to 256×256, RGB, JPEG quality 90. The build records
+this in `dataset.json` under `normalisation`. Results from datasets built before this change are
+not comparable and must not be reported.
+
 ### Leakage control: what it does and does not do
 
 `finetune/prepare.py` hashes every image with a 64-bit difference hash (dHash). Images within
