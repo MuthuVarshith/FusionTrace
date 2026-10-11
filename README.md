@@ -104,8 +104,12 @@ generalization failure that motivated v2. The public fakes are diffusion-generat
 |---|---|---|---|
 | `wav2vec2-legacy` (default) | 1.00 | 0.74 | 0.916 |
 | `wav2vec2-xlsr-garystafford` | 0.90 | 0.44 | 0.682 |
+| `wav2vec2-base-melodymachine` | 0.44 | 0.18 | 0.296 |
 
-Full tables, datasets, revisions and the third audio candidate:
+**Video temporal signal**: 10 real + 10 fake public clips: AUC 0.50 (does not separate the
+classes yet; weight 0.3).
+
+Full tables, datasets and revisions:
 [docs/model-choice.md](docs/model-choice.md).
 
 ---
