@@ -57,7 +57,7 @@
 | | File inspection (0.1) | — |
 | **Video** | Image model on frames sampled every 5 s, up to 12 (0.8) | `commfor-vit-s384` |
 | | Audio model on the extracted soundtrack (0.9) | `wav2vec2-legacy` |
-| | **Temporal consistency across frames (0.3)** | `frame-consistency-heuristic`: an **uncalibrated heuristic**, not a learned model |
+| | Temporal consistency across frames (**0: reported, not scored**) | `frame-consistency-heuristic`: an **uncalibrated heuristic** that does not yet beat chance |
 | | File inspection (0.1) | — |
 
 Other registered options, selectable by config:
@@ -72,11 +72,12 @@ How they compare: [docs/model-choice.md](docs/model-choice.md).
 contributes risk 0 at weight 0.1, so scores top out at about 90. If no detector produces a
 signal, the scan fails rather than reporting "low".
 
-**Why the temporal weight is low.** No permissively licensed, CPU-friendly learned temporal
-video model passed selection (the best one inherits a non-commercial licence). The fallback
-measures flicker and score jitter across consecutive frames. On a 10 real + 10 fake public
-sample it did **not** separate the classes (AUC 0.50), so it carries weight 0.3 until it is
-calibrated.
+**The temporal video signal is switched off for scoring (weight 0).** No permissively licensed,
+CPU-friendly learned temporal video model passed selection (the best one inherits a
+non-commercial licence). The fallback measures flicker and score jitter across consecutive
+frames. On a 10 real + 10 fake public sample it did **not** separate the classes (AUC 0.50), so
+it is still computed and shown in the report, but it does not change the score. Set
+`detectors.video.weight` above 0 only after it beats chance on a labelled set.
 
 ---
 
@@ -85,7 +86,8 @@ calibrated.
 Small checks run once during the v2 upgrade, on CPU, threshold 0.5. They show the models
 behave plausibly; they are not accuracy claims.
 
-**Image**: public out-of-distribution sample, 90 real (FairFace) + 90 fake (Stable Diffusion faces):
+**Image** — public sample, 90 real (FairFace) + 90 fake (Stable Diffusion faces, from
+`LucaCorvitto/DeepFake-Faces-Stimuli`, made with `realistic-vision-v51`):
 
 | Model | Fake recall | Real recall | AUC |
 |---|---|---|---|
@@ -94,9 +96,27 @@ behave plausibly; they are not accuracy claims.
 | `siglip-deepfake-v1` | 0.100 | 0.467 | 0.155 |
 | `efficientnetv2-legacy` (v1) | 0.011 | 1.000 | 0.821 |
 
-The v1 model labels almost every out-of-distribution fake as real, which reproduces the
-generalization failure that motivated v2. The public fakes are diffusion-generated faces only:
-**face swaps were not tested.**
+**Caveat: this sample overlaps the default model's training data.** `realistic-vision-v51` is
+listed in Community Forensics' own generator metadata, so the 1.000 measures recognition of a
+generator the model was trained on, not generalization. The real faces (FairFace) were not in
+its training data.
+
+**Unseen fakes: face swaps.** The default model was checked on 90 face-swap images
+(`bitmind/face-swap`, Apache-2.0, test split) against the same 90 FairFace real faces:
+
+| Model | Fake recall | Real recall | AUC |
+|---|---|---|---|
+| `commfor-vit-s384` (default) | 0.011 | 0.989 | **0.459** |
+
+On face swaps the default model is at chance. Community Forensics covers image generators,
+not face-swap tools, so this is the fair test of unseen fakes. **The image default does not
+detect face swaps.** Its diffusion-face results should not be read as general accuracy.
+
+**Why the v1 model looks bad at 0.5 (a threshold problem, not no signal).** Its AUC is 0.821,
+but it catches 1.1% of fakes at the 0.5 threshold, because its fake scores all sit near 0.
+Lowering the threshold to about 0.001 recovers 42% of fakes at 92% real recall, so the ranking
+carries signal. That threshold was read off this same 90 + 90 sample, so it is fitted to it,
+and the v2 default keeps the standard 0.5 threshold.
 
 **Audio**: In-the-Wild sample, 50 real + 50 fake:
 
@@ -107,7 +127,13 @@ generalization failure that motivated v2. The public fakes are diffusion-generat
 | `wav2vec2-base-melodymachine` | 0.44 | 0.18 | 0.296 |
 
 **Video temporal signal**: 10 real + 10 fake public clips: AUC 0.50 (does not separate the
-classes yet; weight 0.3).
+classes yet; weight 0, so it does not affect the score).
+
+**Label mapping check.** The `siglip-deepfake-v1` and `wav2vec2-base-melodymachine` fake-class
+indices match their configs (`siglip`: 0 = Fake; `melodymachine`: 0 = fake) and their preprocessing
+matches the model configs. On their own checks the low AUCs are not a label swap: a flip would
+improve one dataset and worsen the other (`siglip` AUC is 0.788 on the local set with the current
+mapping), so the mapping was left unchanged. Both models fail to transfer to these datasets.
 
 Full tables, datasets and revisions:
 [docs/model-choice.md](docs/model-choice.md).
@@ -253,8 +279,8 @@ and pytest, and builds the Docker image.
 | Limitation | Detail |
 |---|---|
 | **Results are risk signals, not proof** | No detector here is calibrated for your data. Treat high scores as "review this", and low scores as "nothing flagged", not "authentic". |
-| **Image model tested on one kind of fake** | The default image model was checked on diffusion-generated faces. Face swaps and edited real photos were not tested. |
-| **Temporal video signal is a heuristic** | Uncalibrated, AUC 0.50 on its 10 + 10 check, weight 0.3. No lip-sync model. |
+| **Image default fails on face swaps** | AUC 0.459 (chance) on 90 face-swap images. Its strong diffusion-face result is on a generator it was trained on. It has no face-swap detection; use it with that in mind. |
+| **Temporal video signal is a heuristic, weight 0** | Uncalibrated, AUC 0.50 on its 10 + 10 check. Computed and shown, but it does not affect the score. No lip-sync model. |
 | **Audio default is the v1 model** | It held up on In-the-Wild (AUC 0.916, n = 100). Its weights are private (see Getting started). |
 | **Single process** | The queue and rate limits are in memory, and SQLite is the only store, so this does not scale horizontally. |
 | **CPU speed** | Roughly 1.4 s per 4 s audio window; long videos are capped by a processing budget. |

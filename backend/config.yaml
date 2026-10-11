@@ -36,10 +36,10 @@ detectors:
   video:
     # Temporal signal (between-frame consistency). The default is an uncalibrated
     # heuristic that did not separate real from fake in its quick check (AUC 0.50,
-    # n=10+10), so it carries a low weight until it is calibrated.
+    # n=10+10), so its fusion weight is 0 until it beats chance on a labelled set.
     enabled: true
     model: default
-    weight: 0.3
+    weight: 0.0   # disabled for scoring until it beats chance (see README); still reported
     options:
       max_clips: 4
       frames_per_clip: 8
