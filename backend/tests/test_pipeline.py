@@ -7,14 +7,21 @@ import time
 from pathlib import Path
 
 import pytest
+from test_detectors_video import (  # same folder (pytest rootdir-relative import)
+    HAS_FFMPEG,
+    make_clip,
+)
 
 from app import pipeline
 from app.detectors import registry
-from app.detectors.base import AnalysisContext, DetectorResult, InferenceError, MediaKind
+from app.detectors.base import (
+    AnalysisContext,
+    DetectorResult,
+    InferenceError,
+    MediaKind,
+)
 from app.detectors.testing import StubDetector
 from app.detectors.video.heuristic import FrameConsistencyHeuristic
-
-from .test_detectors_video import HAS_FFMPEG, make_clip
 
 BACKEND = Path(__file__).resolve().parents[1]
 SAMPLE_IMAGE = BACKEND / "test" / "real" / "00007.jpg"
@@ -37,7 +44,7 @@ class RecordingStub(StubDetector):
 def video_with_audio(tmp_path_factory: pytest.TempPathFactory) -> Path:
     if not HAS_FFMPEG:
         pytest.skip("ffmpeg/ffprobe not installed")
-    return make_clip(tmp_path_factory.mktemp("pipeline") / "clip.mp4", audio=True)
+    return make_clip(tmp_path_factory.mktemp("pipeline") / "clip.mp4", audio=True, seconds=6.0)  # >= one frame interval
 
 
 def assert_schema(item: dict) -> None:
@@ -45,6 +52,9 @@ def assert_schema(item: dict) -> None:
     assert item["status"] in {"ok", "disabled", "error", "skipped"}
     if item["status"] == "ok":
         assert 0.0 <= item["risk"] <= 1.0
+        if item["source"] == "video-frame-model":  # aggregate item: per-frame scores instead of one prediction
+            assert item["details"]["per_frame_scores"]
+            return
         assert item["details"]["prediction"] in {"Fake", "Real"}
         assert item["details"]["confidence"].endswith("%")
     else:
@@ -95,7 +105,7 @@ def test_video_produces_three_signals_with_fixed_weights(video_with_audio: Path,
     assert [item["source"] for item in items] == ["video-frame-model", "video-audio-model", "video-temporal-model"]
     for item in items:
         assert_schema(item)
-        assert item["status"] == "ok"
+        assert item["status"] == "ok", item
     frames, audio, temporal_item = items
     assert frames["weight"] == pytest.approx(0.8) and audio["weight"] == pytest.approx(0.9)
     assert temporal_item["weight"] == pytest.approx(registry.settings(MediaKind.VIDEO).weight)

@@ -46,7 +46,14 @@ from pathlib import Path
 from typing import Any
 
 from .detectors import registry
-from .detectors.base import AnalysisContext, AnalysisTimeoutError, Detector, DetectorError, FrameResult, MediaKind
+from .detectors.base import (
+    AnalysisContext,
+    AnalysisTimeoutError,
+    Detector,
+    DetectorError,
+    FrameResult,
+    MediaKind,
+)
 
 logger = logging.getLogger("fusiontrace")
 
